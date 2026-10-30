@@ -55,16 +55,27 @@ bucket set and rules without forking the pipeline.
 
 ## Extension points (for the closed Pro repo and client builds)
 
-Defined here, implemented in the open as no-op or free-tier versions:
+Implemented today, in the `ai/` package:
 
-- `BucketProfileProvider` - supplies bucket sets and filing rules
-- `Exporter` - share/export targets beyond the built-in text/markdown
-- `SummaryEngine` / `ActionExtractor` interfaces themselves - alternative
-  engines can be supplied by an outer module at build time
+- `Transcriber`, `Summarizer`, `ActionExtractor`, `Bucketer` - the
+  capability interfaces; alternative engines can be supplied by an outer
+  module at build time
+- `BucketProfileProvider` - supplies bucket sets and filing rules. This
+  is the only downstream seam in use today.
+
+Defined in the concept spec (Section 10), not yet implemented:
+`ExtensionRegistry`, `EntitlementProvider`, `FeatureGate`,
+`ExportDestination`, `ReportTemplate`, extra BucketPack / vocabulary
+packs, and a settings / navigation contribution point for Pro screens.
+These are implemented only when a consumer exists; see
+`docs/adr/0002-module-layout-and-the-extension-seam.md` for the seam
+today (package-level interfaces in `:app`) and the trigger for
+extracting a dedicated `:extension-api` module.
 
 Anything behind these seams can be replaced by a downstream module
 without modifying core code. See `docs/adr/0001-open-core-closed-pro-split.md`
-for why the seam exists and the rules around it.
+for why the seam exists and the rules around it, and `CONSTITUTION.md`
+for the governing principles.
 
 ## What is deliberately absent
 
