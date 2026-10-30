@@ -11,7 +11,7 @@ glance = "1.1.1"
 lifecycle = "2.9.4"
 # ML Kit GenAI (Gemini Nano via AICore). Beta/alpha surface: pin and
 # upgrade deliberately; see ai/ package for the capability wrappers.
-mlkitGenaiSpeech = "1.0.0-beta1"
+mlkitGenaiSpeech = "1.0.0-alpha2"
 mlkitGenaiCommon = "1.0.0-beta1"
 
 [libraries]
