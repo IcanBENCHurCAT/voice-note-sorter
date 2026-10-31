@@ -12,7 +12,7 @@ import androidx.glance.layout.Row
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.padding
 import androidx.glance.text.Text
-import androidx.glance.unit.dp
+import androidx.compose.ui.unit.dp
 
 /**
  * Glance capture widget for home and lock screens. Glance plus
