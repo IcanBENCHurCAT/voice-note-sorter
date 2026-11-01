@@ -80,7 +80,7 @@ and the constitution conflict, stop and ask the maintainer.
 - Stack: Kotlin, Jetpack Compose (Material 3 Expressive), Navigation 3,
   Room, WorkManager, Glance, ML Kit GenAI behind interfaces
 - minSdk 31, targetSdk 36, compileSdk 37
-- Build: `gradle :app:assembleDebug` (Gradle 9.1, JDK 17; wrapper is
-  committed with the first local Studio build); CI runs the same
+- Build: `./gradlew :app:assembleDebug` (`gradlew.bat :app:assembleDebug` on
+  Windows; Gradle 9.1, JDK 17); CI runs the same
 - Where this file and the Gradle files disagree on versions, the Gradle
   files win and this file is corrected in the same change.

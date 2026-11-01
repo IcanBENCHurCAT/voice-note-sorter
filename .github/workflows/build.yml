@@ -19,13 +19,11 @@ jobs:
       # ANDROID_HOME set. android-actions/setup-android@v3 fails on
       # current runners (it calls sdkmanager for the removed 'tools'
       # package), which killed the first CI build before Gradle ran.
-      # The Gradle wrapper is committed after the first local Studio
-      # build; until then CI provisions Gradle directly.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.1.0"
       - name: Build debug
-        run: gradle :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug --stacktrace
       - name: Unit tests
-        run: gradle :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
