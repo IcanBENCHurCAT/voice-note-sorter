@@ -44,8 +44,14 @@ interface NoteDao {
     @Query("SELECT * FROM buckets ORDER BY kind ASC")
     suspend fun allBuckets(): List<Bucket>
 
+    @Query("SELECT * FROM buckets WHERE kind = :kind LIMIT 1")
+    suspend fun bucketByKind(kind: String): Bucket?
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTags(tags: List<Tag>)
+
+    @Query("SELECT * FROM tags ORDER BY name ASC")
+    suspend fun allTags(): List<Tag>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNoteTags(noteTags: List<NoteTag>)
@@ -55,4 +61,10 @@ interface NoteDao {
 
     @Query("SELECT tagName FROM note_tags WHERE noteId = :noteId ORDER BY tagName ASC")
     suspend fun tagsFor(noteId: Long): List<String>
+
+    @Query(
+        "SELECT notes.* FROM notes JOIN note_tags ON notes.id = note_tags.noteId " +
+            "WHERE note_tags.tagName = :tagName ORDER BY notes.createdAtEpochMs DESC"
+    )
+    fun observeByTag(tagName: String): Flow<List<Note>>
 }

@@ -13,7 +13,10 @@ import com.icanbenchurcat.voicenotes.ai.Bucketer
 import com.icanbenchurcat.voicenotes.ai.CapabilityChecker
 import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
+import com.icanbenchurcat.voicenotes.ai.ExtractiveSummarizer
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
+import com.icanbenchurcat.voicenotes.ai.HeuristicActionExtractor
+import com.icanbenchurcat.voicenotes.ai.HeuristicBucketer
 import com.icanbenchurcat.voicenotes.ai.NullTranscriber
 import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
@@ -22,14 +25,17 @@ import com.icanbenchurcat.voicenotes.ai.Transcriber
 import com.icanbenchurcat.voicenotes.ai.Transcript
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.Tag
 import com.icanbenchurcat.voicenotes.service.SortingWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -145,5 +151,66 @@ class SortingWorkerIdempotencyInstrumentedTest {
         assertEquals(noteRun1, noteRun2)
         assertEquals(actionsRun1, actionsRun2)
         assertEquals(tagsRun1, tagsRun2)
+    }
+
+    @Test
+    fun sortingWorkerWithHeuristicBucketer_persistsTagsAndBucketRowInRoomDb() = runBlocking {
+        val dao = db.noteDao()
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = dsScope,
+            produceFile = { dsFile }
+        )
+        val probe = CapabilityProbe(
+            checker = object : CapabilityChecker {
+                override suspend fun checkTranscriber() = CapabilityStatus.AVAILABLE
+                override suspend fun checkSummarizer() = CapabilityStatus.UNAVAILABLE
+                override suspend fun checkActionExtractor() = CapabilityStatus.UNAVAILABLE
+                override fun versionFingerprint() = "app=1|aicore=test"
+            },
+            dataStore = dataStore
+        )
+
+        val transcriber = object : Transcriber {
+            override suspend fun status() = CapabilityStatus.AVAILABLE
+            override suspend fun transcribe(audioPath: String) =
+                Transcript("Shopping list for groceries and coffee.", Tier.CORE)
+        }
+
+        val noteId = dao.insert(
+            Note(
+                createdAtEpochMs = 1_700_000_000_000L,
+                audioPath = "/data/local/tmp/shopping.m4a"
+            )
+        )
+
+        SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = transcriber,
+            platformTranscriber = transcriber,
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao
+        )
+
+        val sortedNote = dao.byId(noteId)!!
+        assertEquals("LIST", sortedNote.bucketKind)
+
+        // Assigned bucket exists as a Bucket row and default profile is seeded
+        val listBucket = dao.bucketByKind("LIST")
+        assertNotNull(listBucket)
+        assertEquals("Lists", listBucket?.name)
+        assertEquals(5, dao.allBuckets().size)
+
+        // HeuristicBucketer derived tags ("groceries", "list", "shopping") are persisted in Room
+        val noteTags = dao.tagsFor(noteId)
+        assertEquals(listOf("groceries", "list", "shopping"), noteTags)
+        assertEquals(
+            listOf(Tag("groceries"), Tag("list"), Tag("shopping")),
+            dao.allTags()
+        )
+        assertEquals(listOf(sortedNote), dao.observeByTag("groceries").first())
     }
 }

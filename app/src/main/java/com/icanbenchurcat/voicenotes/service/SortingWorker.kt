@@ -22,6 +22,7 @@ import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.ai.Transcriber
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
+import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
 import com.icanbenchurcat.voicenotes.data.NoteTag
@@ -111,6 +112,12 @@ class SortingWorker(
         ): PipelineOutcome {
             val stages = mutableListOf<String>()
             var currentNote = note
+            val profile = DefaultBucketProfileProvider.profile()
+
+            // Ensure default profile Bucket rows are seeded before sorting
+            dao?.insertBuckets(
+                profile.buckets.map { Bucket(kind = it.kind, name = it.name) }
+            )
 
             // Stage 1: transcribe — consult CapabilityProbe and persist immediately
             val probedTranscriberStatus = capabilityProbe.transcriberStatus()
@@ -295,11 +302,22 @@ class SortingWorker(
             // Stage 4: bucket + tags — independently caught, idempotently replaced, and persisted
             var persistedTags: List<String> = emptyList()
             try {
-                val assignment = bucketer.assign(
-                    currentNote.transcript,
-                    DefaultBucketProfileProvider.profile()
-                )
+                val assignment = bucketer.assign(currentNote.transcript, profile)
                 stages += "bucket:OK"
+
+                // Ensure the assigned bucket exists as a Bucket row in the database
+                if (dao != null && dao.bucketByKind(assignment.bucketKind) == null) {
+                    val def = profile.buckets.firstOrNull { it.kind == assignment.bucketKind }
+                    dao.insertBuckets(
+                        listOf(
+                            Bucket(
+                                kind = assignment.bucketKind,
+                                name = def?.name ?: assignment.bucketKind
+                            )
+                        )
+                    )
+                }
+
                 val distinctTags = assignment.tags
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
