@@ -22,6 +22,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.icanbenchurcat.voicenotes.R
+import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
+import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.Note
 
@@ -29,46 +31,59 @@ import com.icanbenchurcat.voicenotes.data.Note
  *  marker are shown on purpose - the demo value of this app is that the
  *  user (and the developer reading the code) can see what the ladder did. */
 @Composable
-fun NotesListScreen(notes: List<Note>, onOpen: (Note) -> Unit) {
-    if (notes.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
-            contentAlignment = Alignment.Center
-        ) {
+fun NotesListScreen(
+    notes: List<Note>,
+    deviceTier: Tier? = null,
+    onOpen: (Note) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (deviceTier != null) {
             Text(
-                text = "No voice notes yet. Tap Record to capture a thought.",
-                style = MaterialTheme.typography.bodyLarge
+                text = "Device capability tier: ${deviceTier.name}",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
         }
-        return
-    }
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(notes, key = { it.id }) { note ->
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .defaultMinSize(minHeight = 48.dp)
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .clickable { onOpen(note) }
+        if (notes.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = note.title.ifBlank { "Untitled note" },
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    if (note.summary.isNotBlank()) {
+                Text(
+                    text = "No voice notes yet. Tap Record to capture a thought.",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+            return
+        }
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(notes, key = { it.id }) { note ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clickable { onOpen(note) }
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = note.summary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 2
+                            text = note.title.ifBlank { "Untitled note" },
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        if (note.summary.isNotBlank()) {
+                            Text(
+                                text = note.summary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 2
+                            )
+                        }
+                        val metaDesc = stringResource(R.string.cd_note_meta, note.bucketKind, note.tierUsed)
+                        Text(
+                            text = "${note.bucketKind} · ${note.tierUsed}",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.semantics { contentDescription = metaDesc }
                         )
                     }
-                    val metaDesc = stringResource(R.string.cd_note_meta, note.bucketKind, note.tierUsed)
-                    Text(
-                        text = "${note.bucketKind} · ${note.tierUsed}",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.semantics { contentDescription = metaDesc }
-                    )
                 }
             }
         }
@@ -79,7 +94,8 @@ fun NotesListScreen(notes: List<Note>, onOpen: (Note) -> Unit) {
 fun NoteDetailScreen(
     note: Note,
     actions: List<ActionItem> = emptyList(),
-    tags: List<String> = emptyList()
+    tags: List<String> = emptyList(),
+    transcriberStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE
 ) {
     Column(
         modifier = Modifier
@@ -115,6 +131,13 @@ fun NoteDetailScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 16.dp)
             )
+            if (transcriberStatus == CapabilityStatus.DOWNLOADABLE) {
+                Text(
+                    text = "On-device speech model is downloadable; note can be upgraded once downloaded.",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
         if (actions.isNotEmpty()) {
             Text(
