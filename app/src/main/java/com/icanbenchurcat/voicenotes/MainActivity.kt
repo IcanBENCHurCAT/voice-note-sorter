@@ -15,6 +15,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.ViewModel
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
@@ -51,8 +54,15 @@ class MainActivity : ComponentActivity() {
                 val notes by vm.notes.collectAsState(initial = emptyList())
                 Scaffold(
                     floatingActionButton = {
-                        FloatingActionButton(onClick = { /* TODO(capture): recorder */ }) {
-                            Text("●")
+                        val recordDesc = stringResource(R.string.cd_record_fab)
+                        FloatingActionButton(
+                            onClick = { /* TODO(capture): recorder */ },
+                            modifier = Modifier.semantics { contentDescription = recordDesc }
+                        ) {
+                            Text(
+                                "●",
+                                modifier = Modifier.semantics { contentDescription = "" }
+                            )
                         }
                     }
                 ) { padding ->
