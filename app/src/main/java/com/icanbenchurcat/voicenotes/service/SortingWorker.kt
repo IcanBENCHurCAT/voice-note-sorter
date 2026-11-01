@@ -25,13 +25,26 @@ import com.icanbenchurcat.voicenotes.data.AppDatabase
  */
 class SortingWorker(
     context: Context,
-    params: WorkerParameters
+    params: WorkerParameters,
+    private val transcriber: Transcriber,
+    private val platformTranscriber: Transcriber,
+    private val nullTranscriber: Transcriber,
+    private val summarizer: Summarizer,
+    private val extractor: ActionExtractor,
+    private val bucketer: Bucketer
 ) : CoroutineWorker(context, params) {
 
-    private val transcriber: Transcriber = NanoTranscriber(context)
-    private val summarizer: Summarizer = ExtractiveSummarizer()
-    private val extractor: ActionExtractor = HeuristicActionExtractor()
-    private val bucketer: Bucketer = HeuristicBucketer()
+    // Primary constructor for WorkManager
+    constructor(context: Context, params: WorkerParameters) : this(
+        context,
+        params,
+        NanoTranscriber(context),
+        com.icanbenchurcat.voicenotes.ai.PlatformTranscriber(context),
+        com.icanbenchurcat.voicenotes.ai.NullTranscriber,
+        ExtractiveSummarizer(),
+        HeuristicActionExtractor(),
+        HeuristicBucketer()
+    )
 
     override suspend fun doWork(): Result {
         val noteId = inputData.getLong(KEY_NOTE_ID, -1)
@@ -40,52 +53,75 @@ class SortingWorker(
         val note = dao.byId(noteId) ?: return Result.failure()
         val stages = mutableListOf<String>()
 
-        // Stage 1: transcribe
-        val transcript = try {
-            val t = transcriber.transcribe(note.audioPath)
-            stages += "transcribe:OK"
-            t
-        } catch (e: CapabilityBusyException) {
-            stages += "transcribe:BUSY"
-            return Result.retry()
-        } catch (e: Exception) {
-            stages += "transcribe:FAILED"
-            null
-        }
+        try {
+            // Stage 1: transcribe
+            val transcript = try {
+                val t = transcriber.transcribe(note.audioPath)
+                stages += "transcribe:OK"
+                t
+            } catch (e: CapabilityBusyException) {
+                stages += "transcribe:BUSY"
+                try {
+                    val t = platformTranscriber.transcribe(note.audioPath)
+                    stages += "transcribe_fallback:OK"
+                    t
+                } catch (e2: CapabilityBusyException) {
+                    stages += "transcribe_fallback:BUSY"
+                    val t = nullTranscriber.transcribe(note.audioPath)
+                    stages += "transcribe_null:OK"
+                    t
+                } catch (e2: Exception) {
+                    stages += "transcribe_fallback:FAILED"
+                    null
+                }
+            } catch (e: Exception) {
+                stages += "transcribe:FAILED"
+                null
+            }
 
-        if (transcript == null || transcript.text.isBlank()) {
-            dao.update(note.copy(stageStatus = stages.joinToString(",")))
-            return Result.success()
-        }
+            if (transcript == null || transcript.text.isBlank()) {
+                val tierToSave = transcript?.tier?.name ?: "MINIMAL"
+                dao.update(note.copy(
+                    stageStatus = stages.joinToString(","),
+                    transcript = transcript?.text ?: "",
+                    tierUsed = tierToSave
+                ))
+                return Result.success()
+            }
 
-        // Stage 2: title + summary
-        val ts = summarizer.summarize(transcript.text)
-        stages += "summarize:OK"
+            // Stage 2: title + summary
+            val ts = summarizer.summarize(transcript.text)
+            stages += "summarize:OK"
 
-        // Stage 3: actions
-        val actions = extractor.extract(transcript.text)
-        if (actions.isNotEmpty()) {
-            dao.insertActions(actions.map { ActionItem(noteId = noteId, text = it.text, dueAtEpochMs = it.dueAtEpochMs) })
-        }
-        stages += "actions:OK"
+            // Stage 3: actions
+            val actions = extractor.extract(transcript.text)
+            if (actions.isNotEmpty()) {
+                dao.insertActions(actions.map { ActionItem(noteId = noteId, text = it.text, dueAtEpochMs = it.dueAtEpochMs) })
+            }
+            stages += "actions:OK"
 
-        // Stage 4: bucket + tags (profile-driven; see BucketProfileProvider)
-        val assignment = bucketer.assign(transcript.text, DefaultBucketProfileProvider.profile())
-        stages += "bucket:OK"
+            // Stage 4: bucket + tags (profile-driven; see BucketProfileProvider)
+            val assignment = bucketer.assign(transcript.text, DefaultBucketProfileProvider.profile())
+            stages += "bucket:OK"
 
-        // Stage 5 (embed) is Tier 3 / v1.1; FTS is maintained by Room.
+            // Stage 5 (embed) is Tier 3 / v1.1; FTS is maintained by Room.
 
-        dao.update(
-            note.copy(
-                transcript = transcript.text,
-                title = ts.title,
-                summary = ts.summary,
-                bucketKind = assignment.bucketKind,
-                tierUsed = transcript.tier.name,
-                stageStatus = stages.joinToString(",")
+            dao.update(
+                note.copy(
+                    transcript = transcript.text,
+                    title = ts.title,
+                    summary = ts.summary,
+                    bucketKind = assignment.bucketKind,
+                    tierUsed = transcript.tier.name,
+                    stageStatus = stages.joinToString(",")
+                )
             )
-        )
-        return Result.success()
+            return Result.success()
+        } catch (e: CapabilityBusyException) {
+            // If any subsequent stage throws CapabilityBusyException, save state before retrying
+            dao.update(note.copy(stageStatus = stages.joinToString(",")))
+            return Result.retry()
+        }
     }
 
     companion object {
