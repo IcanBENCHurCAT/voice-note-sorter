@@ -4,7 +4,6 @@ package com.icanbenchurcat.voicenotes.ai
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
@@ -31,12 +30,13 @@ interface CapabilityChecker {
 
 /**
  * Production [CapabilityChecker] that queries [NanoTranscriber] (which isolates
- * all ML Kit GenAI imports in `Transcribers.kt`) and platform [SpeechRecognizer]
- * availability on the running device.
+ * all ML Kit GenAI imports in `Transcribers.kt`) and [PlatformTranscriber]
+ * saved-file transcription availability on the running device.
  */
 class DeviceCapabilityChecker(private val context: Context) : CapabilityChecker {
 
     private val nanoTranscriber = NanoTranscriber(context)
+    private val platformTranscriber = PlatformTranscriber(context)
 
     override suspend fun checkTranscriber(): CapabilityStatus {
         val nanoStatus = nanoTranscriber.status()
@@ -44,13 +44,7 @@ class DeviceCapabilityChecker(private val context: Context) : CapabilityChecker 
             return nanoStatus
         }
 
-        val platformAvailable = try {
-            SpeechRecognizer.isOnDeviceRecognitionAvailable(context) ||
-                SpeechRecognizer.isRecognitionAvailable(context)
-        } catch (_: Throwable) {
-            false
-        }
-        if (platformAvailable) {
+        if (platformTranscriber.status() == CapabilityStatus.AVAILABLE) {
             return CapabilityStatus.AVAILABLE
         }
 
