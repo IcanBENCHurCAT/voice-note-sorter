@@ -28,6 +28,9 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
+import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
+import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Note
@@ -53,6 +56,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val db = AppDatabase.get(this)
         val dao = db.noteDao()
+        val capabilityProbe = CapabilityProbe.get(this)
         // TODO(capture): EXTRA_START_RECORDING from the QS tile / widget
         // deep-links straight into the recorder once capture lands.
         setContent {
@@ -60,6 +64,14 @@ class MainActivity : ComponentActivity() {
                 val backStack = rememberNavBackStack(NotesListKey)
                 val vm = remember { NotesViewModel(dao.observeAll()) }
                 val notes by vm.notes.collectAsState(initial = emptyList())
+                var deviceTier by remember { mutableStateOf<Tier?>(null) }
+                var transcriberStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
+
+                LaunchedEffect(Unit) {
+                    transcriberStatus = capabilityProbe.transcriberStatus()
+                    deviceTier = capabilityProbe.resolveDeviceTier()
+                }
+
                 Scaffold(
                     floatingActionButton = {
                         val recordDesc = stringResource(R.string.cd_record_fab)
@@ -82,7 +94,10 @@ class MainActivity : ComponentActivity() {
                                 onBack = { backStack.removeLastOrNull() },
                                 entryProvider = entryProvider {
                                     entry<NotesListKey> {
-                                        NotesListScreen(notes) { note ->
+                                        NotesListScreen(
+                                            notes = notes,
+                                            deviceTier = deviceTier
+                                        ) { note ->
                                             backStack.add(NoteDetailKey(note.id))
                                         }
                                     }
@@ -102,7 +117,8 @@ class MainActivity : ComponentActivity() {
                                             NoteDetailScreen(
                                                 note = note,
                                                 actions = actions,
-                                                tags = tags
+                                                tags = tags,
+                                                transcriberStatus = transcriberStatus
                                             )
                                         } else {
                                             Text("Note not found")

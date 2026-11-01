@@ -63,6 +63,7 @@ dependencies {
 
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
+    implementation(libs.androidx.datastore.preferences)
 
     // On-device AI. All ML Kit access goes through the ai/ package
     // interfaces; nothing else in the app may reference these directly.
@@ -70,6 +71,7 @@ dependencies {
     implementation(libs.mlkit.genai.common)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.test.ext.junit)
