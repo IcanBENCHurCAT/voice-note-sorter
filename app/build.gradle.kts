@@ -68,5 +68,8 @@ dependencies {
     implementation(libs.mlkit.genai.speech)
     implementation(libs.mlkit.genai.common)
 
+    // Offline English/Russian date parsing for heuristic action annotations.
+    implementation(libs.dateparser)
+
     testImplementation(libs.junit)
 }
