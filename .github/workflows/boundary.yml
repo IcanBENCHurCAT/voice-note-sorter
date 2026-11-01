@@ -1,0 +1,39 @@
+name: Boundary Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  boundary-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for restricted dependencies
+        run: |
+          OFFENDING_DEPS=$(grep -rnE "billingclient|play-services-ads|firebase-analytics|AdMob" gradle/libs.versions.toml app/build.gradle.kts build.gradle.kts settings.gradle.kts || true)
+          if [ -n "$OFFENDING_DEPS" ]; then
+            echo "ERROR: Restricted dependency (billing/ads/analytics) found in build files!"
+            echo "$OFFENDING_DEPS"
+            exit 1
+          fi
+
+      - name: Check for proprietary license headers
+        run: |
+          OFFENDING_FILES=$(find . -name "*.kt" -exec grep -Hni "proprietary" {} \; || true)
+          if [ -n "$OFFENDING_FILES" ]; then
+            echo "ERROR: Proprietary license text found in source files!"
+            echo "$OFFENDING_FILES"
+            exit 1
+          fi
+
+      - name: Check for INTERNET permission
+        run: |
+          OFFENDING_MANIFEST=$(grep -Hni "android.permission.INTERNET" app/src/main/AndroidManifest.xml || true)
+          if [ -n "$OFFENDING_MANIFEST" ]; then
+            echo "ERROR: android.permission.INTERNET found in AndroidManifest.xml!"
+            echo "$OFFENDING_MANIFEST"
+            exit 1
+          fi
