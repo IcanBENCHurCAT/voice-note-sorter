@@ -4,6 +4,7 @@ package com.icanbenchurcat.voicenotes.data
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
@@ -30,6 +31,21 @@ interface NoteDao {
 
     @Insert suspend fun insertActions(items: List<ActionItem>)
 
-    @Query("SELECT * FROM action_items WHERE noteId = :noteId")
+    @Query("SELECT * FROM action_items WHERE noteId = :noteId ORDER BY id ASC")
     suspend fun actionsFor(noteId: Long): List<ActionItem>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBuckets(buckets: List<Bucket>)
+
+    @Query("SELECT * FROM buckets ORDER BY kind ASC")
+    suspend fun allBuckets(): List<Bucket>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertTags(tags: List<Tag>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNoteTags(noteTags: List<NoteTag>)
+
+    @Query("SELECT tagName FROM note_tags WHERE noteId = :noteId ORDER BY tagName ASC")
+    suspend fun tagsFor(noteId: Long): List<String>
 }

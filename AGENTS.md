@@ -5,6 +5,9 @@ rules exist to protect the project's licensing boundary and its users. If a
 task conflicts with this file, stop and ask the maintainer instead of
 working around it.
 
+The principles behind these rules are in `CONSTITUTION.md`. If this file
+and the constitution conflict, stop and ask the maintainer.
+
 ## The boundary (hard rules)
 
 1. **This is the open core.** Everything here is Apache-2.0 and public.
@@ -27,6 +30,18 @@ working around it.
    SDKs that phone home. Notes, audio, transcripts and embeddings never
    leave the device. A change that needs the network needs the
    maintainer's explicit approval first.
+6. **Guards are part of the boundary.** Do not remove or weaken the CI
+   boundary checks, the PR template question, or the `.gitignore`
+   exclusions for keys and `pro/` drop-ins. A change that trips a guard
+   is stopped, not routed around. (Guard implementation is tracked work;
+   until it lands, reviewers enforce these rules by hand and say so.)
+7. **Licence headers.** Every new source file carries the header
+   `SPDX-License-Identifier: Apache-2.0`. A file with a proprietary
+   header, or no header where the template requires one, does not merge.
+8. **Permissions are product decisions.** Adding any Android permission,
+   or changing backup or data-extraction behaviour, needs the
+   maintainer's explicit approval first, same as a change that needs
+   the network.
 
 ## Working rules
 
@@ -39,10 +54,21 @@ working around it.
   compile in your environment, say so in the PR description.
 - **Tests for the ladder.** Changes to capability detection, the sorting
   pipeline, or bucket assignment need unit tests covering at least the
-  Tier 1 (no AI) path.
+  Tier 1 (no AI) path. An empty test suite is not coverage: the first
+  change to capability detection, the pipeline, or bucket assignment
+  must land with the Tier 1 tests, not after them.
 - **Docs move with code.** If you change the architecture, the extension
   points, or the boundary, update `docs/ARCHITECTURE.md` and add or amend
   an ADR in `docs/adr/` in the same change.
+- **Status honesty.** Documentation describes shipped behaviour in the
+  present tense, unshipped behaviour as planned, and names the issue or
+  spec section it is planned under. Never upgrade a TODO to a feature
+  in prose.
+- **Pro repo mirror.** When the closed Pro repository is created, its
+  first commit includes an AGENTS.md stating the mirror rule: fixes that
+  belong in the core are re-implemented in the open repo on their own
+  merits, and closed code is never copied, pasted, or referenced from
+  the open repo. Its first commit also includes `CONSTITUTION.md`.
 - **No silent scope growth.** The MVP scope is the capture-to-filed loop.
   New features (reminders, import, Wear, AppFunctions) are listed as later
   scope in the concept spec; do not start them without the maintainer
@@ -54,5 +80,7 @@ working around it.
 - Stack: Kotlin, Jetpack Compose (Material 3 Expressive), Navigation 3,
   Room, WorkManager, Glance, ML Kit GenAI behind interfaces
 - minSdk 31, targetSdk 36, compileSdk 37
-- Build: `gradle :app:assembleDebug` (Gradle 9.1, JDK 17; wrapper is
-  committed with the first local Studio build); CI runs the same
+- Build: `./gradlew :app:assembleDebug` (`gradlew.bat :app:assembleDebug` on
+  Windows; Gradle 9.1, JDK 17); CI runs the same
+- Where this file and the Gradle files disagree on versions, the Gradle
+  files win and this file is corrected in the same change.
