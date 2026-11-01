@@ -36,7 +36,7 @@ class MainActivitySmokeTest {
         val dao = AppDatabase.get(context).noteDao()
 
         // 1. Assert the record FAB is present with content description 'Record a note'
-        composeRule.onNodeWithContentDescription("Record a note (deliberately broken assertion)").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Record a note").assertIsDisplayed()
 
         // 2. Insert a note and assert the notes list renders it
         runBlocking {
