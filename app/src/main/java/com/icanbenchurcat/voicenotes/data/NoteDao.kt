@@ -29,7 +29,11 @@ interface NoteDao {
     )
     fun search(query: String): Flow<List<Note>>
 
-    @Insert suspend fun insertActions(items: List<ActionItem>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertActions(items: List<ActionItem>)
+
+    @Query("DELETE FROM action_items WHERE noteId = :noteId")
+    suspend fun deleteActionsForNote(noteId: Long)
 
     @Query("SELECT * FROM action_items WHERE noteId = :noteId ORDER BY id ASC")
     suspend fun actionsFor(noteId: Long): List<ActionItem>
@@ -45,6 +49,9 @@ interface NoteDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNoteTags(noteTags: List<NoteTag>)
+
+    @Query("DELETE FROM note_tags WHERE noteId = :noteId")
+    suspend fun deleteNoteTagsForNote(noteId: Long)
 
     @Query("SELECT tagName FROM note_tags WHERE noteId = :noteId ORDER BY tagName ASC")
     suspend fun tagsFor(noteId: Long): List<String>
