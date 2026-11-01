@@ -92,9 +92,9 @@ follows the consumer MVP reaching the closed track.
 ## Building
 
 - Android Studio (latest stable), JDK 17, compileSdk 37, minSdk 31.
-- Build with Gradle 9.1 (`gradle :app:assembleDebug`). The Gradle
-  wrapper gets committed with the first local Studio build; CI already
-  provisions Gradle directly (`.github/workflows/build.yml`).
+- Build with the Gradle 9.1 wrapper: `./gradlew :app:assembleDebug` (or
+  `gradlew.bat :app:assembleDebug` on Windows) and run unit tests with
+  `./gradlew :app:testDebugUnitTest`.
 
 ## Project layout
 
