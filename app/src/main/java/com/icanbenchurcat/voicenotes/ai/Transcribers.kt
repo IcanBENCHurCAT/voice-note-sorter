@@ -2,9 +2,13 @@
 
 package com.icanbenchurcat.voicenotes.ai
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.media.AudioFormat
+import android.os.Build
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -16,8 +20,13 @@ import com.google.mlkit.genai.speechrecognition.SpeechRecognizerOptions
 import com.google.mlkit.genai.speechrecognition.SpeechRecognizerResponse
 import com.google.mlkit.genai.speechrecognition.speechRecognizerOptions
 import com.google.mlkit.genai.speechrecognition.speechRecognizerRequest
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -76,6 +85,10 @@ object MlKitGenAiSpeechClient : GenAiSpeechClient {
     }
 
     override suspend fun recognizeFile(audioPath: String, advancedMode: Boolean): String {
+        val file = File(audioPath)
+        require(file.exists() && file.isFile && file.length() > 0L) {
+            "Audio file does not exist or is empty: $audioPath"
+        }
         val mode = if (advancedMode) {
             SpeechRecognizerOptions.Mode.MODE_ADVANCED
         } else {
@@ -88,7 +101,7 @@ object MlKitGenAiSpeechClient : GenAiSpeechClient {
             }
         )
         try {
-            val source = AudioSource.fromFile(File(audioPath))
+            val source = AudioSource.fromFile(file)
             try {
                 val request = speechRecognizerRequest {
                     audioSource = source
@@ -196,57 +209,220 @@ class NanoTranscriber(
         }
 
         // GenAI feature is unavailable or still downloadable: fall through
-        // explicitly to the fallback transcriber and preserve the tier that
-        // actually produced the transcript.
+        // explicitly to the fallback transcriber if it can transcribe files,
+        // or to NullTranscriber (Tier 1) if no on-device engine can transcribe
+        // saved files on this device.
+        if (fallbackTranscriber.status() != CapabilityStatus.AVAILABLE) {
+            CapabilityProbe.logDemotion("transcriber", Tier.FULL, Tier.MINIMAL)
+            return NullTranscriber.transcribe(audioPath)
+        }
         CapabilityProbe.logDemotion("transcriber", Tier.FULL, Tier.CORE)
         return fallbackTranscriber.transcribe(audioPath)
     }
 }
 
-/** Platform SpeechRecognizer fallback. Works broadly, no Nano required. */
-class PlatformTranscriber(private val context: Context) : Transcriber {
+/**
+ * Seam over the platform saved-file speech recognition engine so that
+ * [PlatformTranscriber] can be unit-tested with real audio files on disk
+ * and verified for main-thread confinement when called from a WorkManager
+ * background worker.
+ */
+interface PlatformFileSpeechEngine {
+    fun isFileTranscriptionAvailable(): Boolean
+    suspend fun transcribeFile(audioFile: File): String
+}
 
-    override suspend fun status(): CapabilityStatus =
-        if (SpeechRecognizer.isRecognitionAvailable(context)) CapabilityStatus.AVAILABLE
-        else CapabilityStatus.UNAVAILABLE
+/**
+ * Production [PlatformFileSpeechEngine] using Android 13+ (API 33+)
+ * [RecognizerIntent.EXTRA_AUDIO_SOURCE] with a read-only [ParcelFileDescriptor].
+ *
+ * Verified in Issue #41 (`docs/capability-verification.md`):
+ * - `RecognizerIntent.EXTRA_AUDIO_SOURCE` does not exist on API 31–32. On
+ *   those API levels, [isFileTranscriptionAvailable] returns `false` and
+ *   [PlatformTranscriber] never opens a live microphone session.
+ * - `android.speech.SpeechRecognizer` must be created, started, and
+ *   destroyed on the main thread ([Dispatchers.Main]), even when invoked
+ *   from a background [androidx.work.CoroutineWorker].
+ */
+class AndroidPlatformFileSpeechEngine(
+    private val context: Context,
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+    private val sdkInt: Int = Build.VERSION.SDK_INT
+) : PlatformFileSpeechEngine {
 
-    override suspend fun transcribe(audioPath: String): Transcript =
-        suspendCancellableCoroutine { cont ->
-            val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-            }
-            recognizer.setRecognitionListener(object : RecognitionListener {
-                override fun onResults(results: Bundle?) {
-                    val text = results
-                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull().orEmpty()
-                    recognizer.destroy()
-                    if (cont.isActive) cont.resume(Transcript(text, Tier.CORE))
-                }
+    override fun isFileTranscriptionAvailable(): Boolean {
+        if (sdkInt < Build.VERSION_CODES.TIRAMISU) {
+            return false
+        }
+        return try {
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(context) ||
+                SpeechRecognizer.isRecognitionAvailable(context)
+        } catch (_: Throwable) {
+            false
+        }
+    }
 
-                override fun onError(error: Int) {
-                    recognizer.destroy()
-                    if (cont.isActive) {
-                        cont.resumeWithException(
-                            if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) CapabilityBusyException()
-                            else IllegalStateException("Speech recognition error $error")
+    @SuppressLint("InlinedApi")
+    override suspend fun transcribeFile(audioFile: File): String {
+        require(audioFile.exists() && audioFile.isFile && audioFile.length() > 0L) {
+            "Audio file does not exist or is empty: ${audioFile.path}"
+        }
+        if (sdkInt < Build.VERSION_CODES.TIRAMISU) {
+            throw UnsupportedOperationException(
+                "Saved-file transcription via platform SpeechRecognizer requires API 33+"
+            )
+        }
+
+        val audioStreamConfig = openAudioPipeOrDescriptor(audioFile)
+        val pfd = audioStreamConfig.pfd
+
+        return try {
+            withContext(mainDispatcher) {
+                suspendCancellableCoroutine { cont ->
+                    val recognizer = if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+                        SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                    } else {
+                        SpeechRecognizer.createSpeechRecognizer(context)
+                    }
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(
+                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                        )
+                        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, pfd)
+                        putExtra(
+                            RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING,
+                            AudioFormat.ENCODING_PCM_16BIT
+                        )
+                        putExtra(
+                            RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE,
+                            audioStreamConfig.sampleRateHz
+                        )
+                        putExtra(
+                            RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT,
+                            audioStreamConfig.channelCount
                         )
                     }
-                }
+                    recognizer.setRecognitionListener(object : RecognitionListener {
+                        override fun onResults(results: Bundle?) {
+                            val text = results
+                                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                ?.firstOrNull().orEmpty()
+                            runCatching { pfd.close() }
+                            recognizer.destroy()
+                            if (cont.isActive) cont.resume(text)
+                        }
 
-                override fun onReadyForSpeech(params: Bundle?) {}
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onPartialResults(partialResults: Bundle?) {}
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
-            cont.invokeOnCancellation { recognizer.destroy() }
-            recognizer.startListening(intent)
+                        override fun onError(error: Int) {
+                            runCatching { pfd.close() }
+                            recognizer.destroy()
+                            if (cont.isActive) {
+                                cont.resumeWithException(
+                                    if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                                        CapabilityBusyException()
+                                    } else {
+                                        IllegalStateException("Speech recognition error $error")
+                                    }
+                                )
+                            }
+                        }
+
+                        override fun onReadyForSpeech(params: Bundle?) {}
+                        override fun onBeginningOfSpeech() {}
+                        override fun onRmsChanged(rmsdB: Float) {}
+                        override fun onBufferReceived(buffer: ByteArray?) {}
+                        override fun onEndOfSpeech() {}
+                        override fun onPartialResults(partialResults: Bundle?) {}
+                        override fun onEvent(eventType: Int, params: Bundle?) {}
+                    })
+                    cont.invokeOnCancellation {
+                        runCatching { pfd.close() }
+                        runCatching { recognizer.destroy() }
+                    }
+                    recognizer.startListening(intent)
+                }
+            }
+        } finally {
+            runCatching { pfd.close() }
         }
+    }
+
+    private data class AudioStreamConfig(
+        val pfd: ParcelFileDescriptor,
+        val sampleRateHz: Int,
+        val channelCount: Int
+    )
+
+    private fun openAudioPipeOrDescriptor(file: File): AudioStreamConfig {
+        val bytes = file.readBytes()
+        if (bytes.size > WAV_HEADER_BYTES &&
+            bytes[0] == 'R'.code.toByte() &&
+            bytes[1] == 'I'.code.toByte() &&
+            bytes[2] == 'F'.code.toByte() &&
+            bytes[3] == 'F'.code.toByte()
+        ) {
+            val header = ByteBuffer.wrap(bytes, 0, WAV_HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+            val channels = header.getShort(22).toInt().coerceIn(1, 2)
+            val sampleRate = header.getInt(24).takeIf { it in 8_000..48_000 } ?: DEFAULT_SAMPLE_RATE_HZ
+            val pipe = ParcelFileDescriptor.createPipe()
+            val readSide = pipe[0]
+            val writeSide = pipe[1]
+            Thread {
+                try {
+                    ParcelFileDescriptor.AutoCloseOutputStream(writeSide).use { out ->
+                        out.write(bytes, WAV_HEADER_BYTES, bytes.size - WAV_HEADER_BYTES)
+                        out.flush()
+                    }
+                } catch (_: Throwable) {
+                }
+            }.start()
+            return AudioStreamConfig(readSide, sampleRate, channels)
+        }
+        return AudioStreamConfig(
+            pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY),
+            sampleRateHz = DEFAULT_SAMPLE_RATE_HZ,
+            channelCount = DEFAULT_CHANNEL_COUNT
+        )
+    }
+
+    companion object {
+        private const val WAV_HEADER_BYTES = 44
+        private const val DEFAULT_SAMPLE_RATE_HZ = 16_000
+        private const val DEFAULT_CHANNEL_COUNT = 1
+    }
+}
+
+/**
+ * Platform SpeechRecognizer fallback for saved audio files.
+ * Never opens a live microphone session; if the device cannot transcribe
+ * saved files (e.g. API 31–32 or no speech recognition service), returns
+ * a Tier 1 ([Tier.MINIMAL]) result so the note remains playable.
+ */
+class PlatformTranscriber(
+    private val engine: PlatformFileSpeechEngine
+) : Transcriber {
+
+    constructor(context: Context) : this(
+        engine = AndroidPlatformFileSpeechEngine(context.applicationContext)
+    )
+
+    override suspend fun status(): CapabilityStatus =
+        if (engine.isFileTranscriptionAvailable()) CapabilityStatus.AVAILABLE
+        else CapabilityStatus.UNAVAILABLE
+
+    override suspend fun transcribe(audioPath: String): Transcript {
+        val file = File(audioPath)
+        require(file.exists() && file.isFile && file.length() > 0L) {
+            "Audio file does not exist or is empty: $audioPath"
+        }
+        if (!engine.isFileTranscriptionAvailable()) {
+            return NullTranscriber.transcribe(audioPath)
+        }
+        val text = engine.transcribeFile(file)
+        return Transcript(text, Tier.CORE)
+    }
 }
 
 /** Tier 1: no transcription. The note is filed by hand; the app still
