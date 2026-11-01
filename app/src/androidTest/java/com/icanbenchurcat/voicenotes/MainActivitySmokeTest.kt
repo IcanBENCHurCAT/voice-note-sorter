@@ -4,6 +4,7 @@ package com.icanbenchurcat.voicenotes
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -54,13 +55,19 @@ class MainActivitySmokeTest {
             )
         }
 
-        composeRule.waitForIdle()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Grocery pickup reminder")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
         composeRule.onNodeWithText("Grocery pickup reminder").assertIsDisplayed()
         composeRule.onNodeWithText("Coffee beans and oat milk.").assertIsDisplayed()
 
         // 3. Tap the note in the list and assert the detail screen opens
         composeRule.onNodeWithText("Grocery pickup reminder").performClick()
-        composeRule.waitForIdle()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Pick up coffee beans and oat milk on the way home.")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
 
         composeRule.onNodeWithText("Pick up coffee beans and oat milk on the way home.").assertIsDisplayed()
         composeRule.onNodeWithText("Pipeline: transcribe:OK,title:OK,actions:OK,bucket:OK").assertIsDisplayed()
