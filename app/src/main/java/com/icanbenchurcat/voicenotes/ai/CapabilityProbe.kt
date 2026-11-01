@@ -12,14 +12,9 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
-import com.google.mlkit.genai.common.FeatureStatus
-import com.google.mlkit.genai.speechrecognition.SpeechRecognition
-import com.google.mlkit.genai.speechrecognition.SpeechRecognizerOptions
-import com.google.mlkit.genai.speechrecognition.speechRecognizerOptions
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.util.Locale
 
 /**
  * Abstraction over the raw device/ML Kit availability checks so that
@@ -35,20 +30,18 @@ interface CapabilityChecker {
 }
 
 /**
- * Production [CapabilityChecker] that queries ML Kit GenAI feature status
- * and platform [SpeechRecognizer] availability on the running device.
+ * Production [CapabilityChecker] that queries [NanoTranscriber] (which isolates
+ * all ML Kit GenAI imports in `Transcribers.kt`) and platform [SpeechRecognizer]
+ * availability on the running device.
  */
 class DeviceCapabilityChecker(private val context: Context) : CapabilityChecker {
 
-    override suspend fun checkTranscriber(): CapabilityStatus {
-        val advancedStatus = probeMlKitSpeechMode(SpeechRecognizerOptions.Mode.MODE_ADVANCED)
-        if (advancedStatus == CapabilityStatus.AVAILABLE) {
-            return CapabilityStatus.AVAILABLE
-        }
+    private val nanoTranscriber = NanoTranscriber(context)
 
-        val basicStatus = probeMlKitSpeechMode(SpeechRecognizerOptions.Mode.MODE_BASIC)
-        if (basicStatus == CapabilityStatus.AVAILABLE) {
-            return CapabilityStatus.AVAILABLE
+    override suspend fun checkTranscriber(): CapabilityStatus {
+        val nanoStatus = nanoTranscriber.status()
+        if (nanoStatus == CapabilityStatus.AVAILABLE || nanoStatus == CapabilityStatus.BUSY) {
+            return nanoStatus
         }
 
         val platformAvailable = try {
@@ -61,7 +54,7 @@ class DeviceCapabilityChecker(private val context: Context) : CapabilityChecker 
             return CapabilityStatus.AVAILABLE
         }
 
-        if (advancedStatus == CapabilityStatus.DOWNLOADABLE || basicStatus == CapabilityStatus.DOWNLOADABLE) {
+        if (nanoStatus == CapabilityStatus.DOWNLOADABLE) {
             return CapabilityStatus.DOWNLOADABLE
         }
 
@@ -93,7 +86,7 @@ class DeviceCapabilityChecker(private val context: Context) : CapabilityChecker 
         if (!isAiCoreInstalledAndEnabled()) {
             return CapabilityStatus.UNAVAILABLE
         }
-        return probeMlKitSpeechMode(SpeechRecognizerOptions.Mode.MODE_ADVANCED)
+        return nanoTranscriber.advancedStatus()
     }
 
     private fun isAiCoreInstalledAndEnabled(): Boolean = try {
@@ -101,36 +94,6 @@ class DeviceCapabilityChecker(private val context: Context) : CapabilityChecker 
         info.applicationInfo?.enabled != false
     } catch (_: Throwable) {
         false
-    }
-
-    private suspend fun probeMlKitSpeechMode(mode: Int): CapabilityStatus {
-        val client = try {
-            SpeechRecognition.getClient(
-                speechRecognizerOptions {
-                    locale = Locale.getDefault()
-                    preferredMode = mode
-                }
-            )
-        } catch (_: Throwable) {
-            return CapabilityStatus.UNAVAILABLE
-        }
-        return try {
-            when (client.checkStatus()) {
-                FeatureStatus.AVAILABLE -> CapabilityStatus.AVAILABLE
-                FeatureStatus.DOWNLOADABLE, FeatureStatus.DOWNLOADING -> CapabilityStatus.DOWNLOADABLE
-                else -> CapabilityStatus.UNAVAILABLE
-            }
-        } catch (_: Throwable) {
-            // Verified in Issue #41: SpeechRecognizer.checkStatus() can throw an
-            // uncaught gRPC StatusException (zzaxh: PERMISSION_DENIED) when
-            // Speech Services rejects access on emulators/unsupported targets.
-            CapabilityStatus.UNAVAILABLE
-        } finally {
-            try {
-                client.close()
-            } catch (_: Throwable) {
-            }
-        }
     }
 
     companion object {
