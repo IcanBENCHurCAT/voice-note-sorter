@@ -5,6 +5,7 @@ package com.icanbenchurcat.voicenotes.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,7 +15,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.data.Note
 
 /** Notes list: filed cards, newest first. The bucket chip and the tier
@@ -27,6 +32,7 @@ fun NotesListScreen(notes: List<Note>, onOpen: (Note) -> Unit) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
                     .padding(horizontal = 16.dp, vertical = 6.dp)
                     .clickable { onOpen(note) }
             ) {
@@ -42,9 +48,11 @@ fun NotesListScreen(notes: List<Note>, onOpen: (Note) -> Unit) {
                             maxLines = 2
                         )
                     }
+                    val metaDesc = stringResource(R.string.cd_note_meta, note.bucketKind, note.tierUsed)
                     Text(
                         text = "${note.bucketKind} · ${note.tierUsed}",
-                        style = MaterialTheme.typography.labelSmall
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.semantics { contentDescription = metaDesc }
                     )
                 }
             }
@@ -63,7 +71,12 @@ fun NoteDetailScreen(note: Note) {
             text = note.title.ifBlank { "Untitled note" },
             style = MaterialTheme.typography.headlineSmall
         )
-        Text(text = note.bucketKind, style = MaterialTheme.typography.labelMedium)
+        val bucketDesc = stringResource(R.string.cd_note_bucket, note.bucketKind)
+        Text(
+            text = note.bucketKind,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.semantics { contentDescription = bucketDesc }
+        )
         if (note.transcript.isNotBlank()) {
             Text(
                 text = note.transcript,
@@ -78,10 +91,13 @@ fun NoteDetailScreen(note: Note) {
             )
         }
         if (note.stageStatus.isNotBlank()) {
+            val pipelineDesc = stringResource(R.string.cd_note_pipeline, note.stageStatus)
             Text(
                 text = "Pipeline: ${note.stageStatus}",
                 style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier
+                    .padding(top = 16.dp)
+                    .semantics { contentDescription = pipelineDesc }
             )
         }
     }

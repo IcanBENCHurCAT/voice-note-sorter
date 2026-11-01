@@ -5,4 +5,9 @@
     <string name="widget_description">One-tap voice note capture</string>
     <string name="channel_sorting">Sorting</string>
     <string name="notif_sorting_title">Sorting your note</string>
+    <string name="cd_record_fab">Record a note</string>
+    <string name="cd_widget_record">Record a note</string>
+    <string name="cd_note_meta">Filed as %1$s, %2$s</string>
+    <string name="cd_note_bucket">Filed as %1$s</string>
+    <string name="cd_note_pipeline">Pipeline status: %1$s</string>
 </resources>
