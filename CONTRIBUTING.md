@@ -8,9 +8,12 @@ kind here.
 ## Licence of contributions
 
 By submitting a contribution you agree it is licensed under the
-**Apache License 2.0**, the licence of this repository. Contributions are
+**Apache License 2.0**, the licence of this repository. There is no CLA;
+the licence grant in this section is the whole agreement. Contributors
+retain their copyright. Contributions are
 used in the free app and may also be used commercially by the maintainer
 (for example in client white-label builds), which Apache-2.0 permits.
+The open codebase will never be relicensed closed.
 Paid/Pro features are developed in a separate closed repository and are
 **not** accepted as contributions here; if you have built something that
 sounds like a paid feature, open an issue first so we can talk about where
