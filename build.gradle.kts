@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Top-level build file. Versions live in gradle/libs.versions.toml.
 plugins {
     alias(libs.plugins.android.application) apply false
