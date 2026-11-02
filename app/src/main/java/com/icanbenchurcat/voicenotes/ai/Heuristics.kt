@@ -2,6 +2,16 @@
 
 package com.icanbenchurcat.voicenotes.ai
 
+import java.time.Clock
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.Month
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
+import java.util.Locale
+
 /**
  * Tier 2 filing: deterministic keyword heuristics over the transcript.
  * No model, no magic, and fully unit-testable - which is why the ladder's
@@ -104,30 +114,529 @@ class HeuristicBucketer : Bucketer {
     }
 }
 
-/** Extractive stand-in for generative summarisation: the first sentence
- *  is the title, the first two are the summary. Embarrassing, effective,
- *  and honest about which tier produced it. */
+/**
+ * Segments dictated speech into sentence-like clauses even when speech
+ * recognition omits terminal punctuation.
+ */
+object TranscriptSegmenter {
+    private val terminalSplitRegex = Regex("(?<=[.!?])\\s+|\\r?\\n+")
+    private val discourseMarkerSplitRegex = Regex(
+        "\\s+(?=(?:" +
+            "remind me|don't forget|do not forget|remember to|" +
+            "i need to|we need to|need to|have to|must|should|" +
+            "and then|after that|finally|secondly|thirdly|" +
+            "(?:also\\s+)?(?:call|email|text|message|send|buy|pick up|schedule|book|pay|order|check|follow up|finish|submit|review)" +
+            ")\\b)",
+        RegexOption.IGNORE_CASE
+    )
+
+    private const val UNPUNCTUATED_WORD_THRESHOLD = 14
+
+    fun segment(transcript: String): List<String> {
+        val normalized = transcript.trim().replace(Regex("[ \\t]+"), " ")
+        if (normalized.isEmpty()) return emptyList()
+
+        val initialChunks = normalized.split(terminalSplitRegex)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+        val result = mutableListOf<String>()
+        for (chunk in initialChunks) {
+            val words = chunk.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            if (words.size <= UNPUNCTUATED_WORD_THRESHOLD) {
+                result += chunk
+            } else {
+                result += segmentChunk(chunk)
+            }
+        }
+        return result
+    }
+
+    private fun segmentChunk(chunk: String): List<String> {
+        val rawClauses = chunk.split(discourseMarkerSplitRegex)
+            .map { it.trim().trim(',', ';') }
+            .filter { it.isNotEmpty() }
+
+        val clauses = mutableListOf<String>()
+        for (clause in rawClauses) {
+            if (clauses.isNotEmpty() && (clauses.last().endsWith(" to", ignoreCase = true) || clauses.last().endsWith(" also", ignoreCase = true))) {
+                clauses[clauses.lastIndex] = clauses.last() + " " + clause
+            } else {
+                clauses += clause
+            }
+        }
+
+        val refined = mutableListOf<String>()
+        for (clause in clauses) {
+            val words = clause.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            if (words.isEmpty()) continue
+            if (refined.isNotEmpty() && words.size < 3) {
+                refined[refined.lastIndex] = refined.last() + " " + clause
+            } else if (words.size <= UNPUNCTUATED_WORD_THRESHOLD * 2) {
+                refined += clause
+            } else {
+                // Fallback windowing for long run-on dictation without discourse markers
+                refined += splitLongRunOn(words)
+            }
+        }
+        return refined
+    }
+
+    private fun splitLongRunOn(words: List<String>): List<String> {
+        val windows = mutableListOf<String>()
+        var start = 0
+        val conjunctions = setOf("and", "so", "but", "then", "because", "while")
+        while (start < words.size) {
+            val maxEnd = (start + UNPUNCTUATED_WORD_THRESHOLD).coerceAtMost(words.size)
+            if (maxEnd == words.size) {
+                windows += words.subList(start, words.size).joinToString(" ")
+                break
+            }
+            // Prefer splitting right before a coordinating conjunction near the window boundary
+            var splitAt = maxEnd
+            for (idx in maxEnd downTo (start + 8).coerceAtMost(maxEnd)) {
+                if (idx < words.size && words[idx].lowercase(Locale.ROOT) in conjunctions) {
+                    splitAt = idx
+                    break
+                }
+            }
+            windows += words.subList(start, splitAt).joinToString(" ")
+            start = splitAt
+        }
+        return windows
+    }
+}
+
+/**
+ * Extractive stand-in for generative summarisation: segments the transcript
+ * (including unpunctuated dictation), scores each segment by signal words,
+ * content-word density, and position, and selects the highest-signal
+ * sentences (up to 2) in their original order.
+ */
 class ExtractiveSummarizer : Summarizer {
     override suspend fun status(): CapabilityStatus = CapabilityStatus.AVAILABLE
 
     override suspend fun summarize(transcript: String): TitleSummary {
-        val sentences = transcript.split(Regex("(?<=[.!?])\\s+"))
-            .map { it.trim() }.filter { it.isNotEmpty() }
-        val title = (sentences.firstOrNull() ?: "Untitled note").take(60)
-        val summary = sentences.take(2).joinToString(" ")
+        val segments = TranscriptSegmenter.segment(transcript)
+        if (segments.isEmpty()) {
+            return TitleSummary("Untitled note", "")
+        }
+
+        val scored = segments.mapIndexed { index, segment ->
+            ScoredSegment(
+                index = index,
+                text = segment,
+                score = scoreSegment(segment, index, segments.size)
+            )
+        }
+
+        val bestForTitle = scored.maxWithOrNull(
+            compareBy<ScoredSegment> { it.score }
+                .thenBy { it.index }
+        ) ?: scored.first()
+
+        val topSegments = scored
+            .sortedWith(
+                compareByDescending<ScoredSegment> { it.score }
+                    .thenBy { it.index }
+            )
+            .take(2)
+            .sortedBy { it.index }
+            .map { ensureTerminalPunctuation(it.text) }
+
+        val title = cleanTitle(bestForTitle.text).take(60)
+        val summary = topSegments.joinToString(" ")
         return TitleSummary(title, summary)
+    }
+
+    private data class ScoredSegment(
+        val index: Int,
+        val text: String,
+        val score: Double
+    )
+
+    companion object {
+        private val stopWords = setOf(
+            "a", "an", "the", "and", "or", "but", "if", "then", "so", "to", "of", "in", "on",
+            "at", "for", "with", "by", "from", "up", "about", "into", "over", "after", "is",
+            "am", "are", "was", "were", "be", "been", "being", "it", "this", "that", "these",
+            "those", "i", "we", "you", "they", "he", "she", "my", "our", "your", "just", "like",
+            "uh", "um", "yeah", "well", "okay", "so", "very", "really"
+        )
+
+        private val fillerOpeners = listOf(
+            "testing", "hello", "hey there", "let me see", "is this thing on",
+            "um", "uh", "okay so", "well anyway"
+        )
+
+        private val signalPhrases = listOf(
+            "remind me", "need to", "don't forget", "do not forget", "remember to",
+            "what if", "we should build", "idea", "important", "key takeaway", "decision",
+            "summary", "action item", "call", "email", "buy", "pick up", "schedule",
+            "deadline", "tomorrow", "today", "tonight", "next week", "groceries", "shopping", "list"
+        )
+
+        internal fun scoreSegment(segment: String, index: Int, totalCount: Int): Double {
+            val words = segment.lowercase(Locale.ROOT)
+                .split(Regex("[^a-z0-9']+"))
+                .filter { it.isNotEmpty() }
+            if (words.isEmpty()) return 0.0
+
+            val contentWords = words.filter { it !in stopWords && it.length > 2 }
+            var score = contentWords.distinct().size * 1.0
+
+            for (phrase in signalPhrases) {
+                if (HeuristicBucketer.matchesKeyword(segment, phrase)) {
+                    score += 3.5
+                }
+            }
+
+            // Numeric or date/time tokens carry concrete information
+            if (words.any { it.any(Char::isDigit) }) {
+                score += 1.5
+            }
+
+            // Mild lead bias only as a tie-breaker so high-signal later sentences beat filler leads
+            if (index == 0 && totalCount > 1) {
+                score += 0.25
+            }
+
+            val lowerTrimmed = segment.trim().lowercase(Locale.ROOT)
+            if (fillerOpeners.any { lowerTrimmed.startsWith(it) } && contentWords.size <= 3) {
+                score -= 4.0
+            }
+
+            return score
+        }
+
+        private fun cleanTitle(text: String): String {
+            val stripped = text.trim().trimEnd('.', '!', '?', ',', ';')
+            return stripped.ifBlank { "Untitled note" }
+        }
+
+        private fun ensureTerminalPunctuation(text: String): String {
+            val trimmed = text.trim()
+            if (trimmed.isEmpty()) return trimmed
+            return if (trimmed.last() in charArrayOf('.', '!', '?')) trimmed else "$trimmed."
+        }
     }
 }
 
-/** Pattern-based action extraction for the non-Nano tiers. */
-class HeuristicActionExtractor : ActionExtractor {
+/**
+ * Pattern-based action extraction for the non-Nano tiers: covers reminder
+ * phrases, obligation phrases, imperative openers, and 'call / email / buy'
+ * phrasing, plus platform `java.time` date parsing for `dueAtEpochMs`.
+ */
+class HeuristicActionExtractor(
+    private val clock: Clock = Clock.systemDefaultZone()
+) : ActionExtractor {
     override suspend fun status(): CapabilityStatus = CapabilityStatus.AVAILABLE
 
     override suspend fun extract(transcript: String): List<ExtractedAction> {
-        val triggers = listOf("remind me", "need to", "don't forget", "remember to")
-        return transcript.split(Regex("(?<=[.!?])\\s+"))
-            .map { it.trim() }
-            .filter { s -> triggers.any { t -> s.lowercase().contains(t) } }
-            .map { ExtractedAction(it) }
+        val segments = TranscriptSegmenter.segment(transcript)
+        return segments
+            .filter { segment -> isActionSegment(segment) }
+            .map { segment ->
+                ExtractedAction(
+                    text = segment.trim(),
+                    dueAtEpochMs = PlatformDateParser.parseDueAtEpochMs(segment, clock)
+                )
+            }
+    }
+
+    companion object {
+        private val phraseTriggers = listOf(
+            "remind me",
+            "need to",
+            "don't forget",
+            "do not forget",
+            "remember to",
+            "have to",
+            "must",
+            "make sure to",
+            "be sure to",
+            "todo",
+            "to-do"
+        )
+
+        private val actionVerbs = listOf(
+            "call",
+            "email",
+            "buy",
+            "pick up",
+            "send",
+            "schedule",
+            "book",
+            "pay",
+            "order",
+            "text",
+            "message",
+            "check",
+            "follow up",
+            "finish",
+            "submit",
+            "review",
+            "renew",
+            "cancel",
+            "prepare",
+            "bring",
+            "drop off"
+        )
+
+        private val imperativeStarterRegex = Regex(
+            "^\\s*(?:please\\s+|also\\s+|then\\s+|and\\s+)*(" +
+                actionVerbs.joinToString("|") { Regex.escape(it) } +
+                ")\\b",
+            RegexOption.IGNORE_CASE
+        )
+
+        private val modalActionVerbRegex = Regex(
+            "\\b(?:i\\s+|we\\s+)?(?:should|will|otta|gotta|need\\s+to|have\\s+to|must|remind\\s+me\\s+to|remember\\s+to|don't\\s+forget\\s+to)\\s+(" +
+                actionVerbs.joinToString("|") { Regex.escape(it) } +
+                ")\\b",
+            RegexOption.IGNORE_CASE
+        )
+
+        private val directCoreVerbRegex = Regex(
+            "(?<![a-z0-9])(?:call|email|buy|pick\\s+up)\\s+(?:the\\s+|a\\s+|an\\s+|my\\s+|our\\s+|some\\s+|[a-z0-9])",
+            RegexOption.IGNORE_CASE
+        )
+
+        fun isActionSegment(segment: String): Boolean {
+            if (segment.isBlank()) return false
+            if (phraseTriggers.any { HeuristicBucketer.matchesKeyword(segment, it) }) {
+                return true
+            }
+            if (imperativeStarterRegex.containsMatchIn(segment)) {
+                return true
+            }
+            if (modalActionVerbRegex.containsMatchIn(segment)) {
+                return true
+            }
+            if (directCoreVerbRegex.containsMatchIn(segment)) {
+                return true
+            }
+            return false
+        }
+    }
+}
+
+/**
+ * Deterministic platform `java.time` parser for relative and calendar date/time
+ * phrases in dictated action items (e.g. "tomorrow", "on Thursday", "next Monday",
+ * "in 3 days", "at 3pm", "before noon", "on November 15").
+ */
+object PlatformDateParser {
+    private val dayMap = mapOf(
+        "monday" to DayOfWeek.MONDAY,
+        "tuesday" to DayOfWeek.TUESDAY,
+        "wednesday" to DayOfWeek.WEDNESDAY,
+        "thursday" to DayOfWeek.THURSDAY,
+        "friday" to DayOfWeek.FRIDAY,
+        "saturday" to DayOfWeek.SATURDAY,
+        "sunday" to DayOfWeek.SUNDAY
+    )
+
+    private val monthMap = mapOf(
+        "january" to Month.JANUARY, "jan" to Month.JANUARY,
+        "february" to Month.FEBRUARY, "feb" to Month.FEBRUARY,
+        "march" to Month.MARCH, "mar" to Month.MARCH,
+        "april" to Month.APRIL, "apr" to Month.APRIL,
+        "may" to Month.MAY,
+        "june" to Month.JUNE, "jun" to Month.JUNE,
+        "july" to Month.JULY, "jul" to Month.JULY,
+        "august" to Month.AUGUST, "aug" to Month.AUGUST,
+        "september" to Month.SEPTEMBER, "sep" to Month.SEPTEMBER, "sept" to Month.SEPTEMBER,
+        "october" to Month.OCTOBER, "oct" to Month.OCTOBER,
+        "november" to Month.NOVEMBER, "nov" to Month.NOVEMBER,
+        "december" to Month.DECEMBER, "dec" to Month.DECEMBER
+    )
+
+    private val weekdayPhraseRegex = Regex(
+        "\\b(?:(on|by|this|next)\\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val inDurationRegex = Regex(
+        "\\bin\\s+(\\d+|one|two|three|four|five|six|seven)\\s+(day|days|week|weeks|hour|hours)\\b",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val monthDayRegex = Regex(
+        "\\b(?:on\\s+|by\\s+)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sep|sept|october|oct|november|nov|december|dec)\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val isoDateRegex = Regex("\\b(\\d{4})-(\\d{2})-(\\d{2})\\b")
+
+    private val explicitTimeRegex = Regex(
+        "\\b(?:at|by|before)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm|a\\.m\\.|p\\.m\\.)?\\b|\\b(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm|a\\.m\\.|p\\.m\\.)\\b",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun parseDueAtEpochMs(text: String, clock: Clock = Clock.systemDefaultZone()): Long? {
+        val zone: ZoneId = clock.zone
+        val now = LocalDateTime.now(clock)
+        val today = now.toLocalDate()
+        val lower = text.lowercase(Locale.ROOT)
+
+        var resolvedDate: LocalDate? = null
+        var explicitHourTime: LocalDateTime? = null
+
+        // 1. Relative duration ("in 2 hours", "in 3 days", "in 2 weeks")
+        val inMatch = inDurationRegex.find(lower)
+        if (inMatch != null) {
+            val amount = parseNumberToken(inMatch.groupValues[1]) ?: 1L
+            val unit = inMatch.groupValues[2].lowercase(Locale.ROOT)
+            when {
+                unit.startsWith("hour") -> explicitHourTime = now.plusHours(amount)
+                unit.startsWith("day") -> resolvedDate = today.plusDays(amount)
+                unit.startsWith("week") -> resolvedDate = today.plusWeeks(amount)
+            }
+        }
+
+        // 2. Relative day keywords ("tomorrow", "today", "tonight", "next week")
+        if (resolvedDate == null && explicitHourTime == null) {
+            when {
+                HeuristicBucketer.matchesKeyword(lower, "day after tomorrow") -> {
+                    resolvedDate = today.plusDays(2)
+                }
+                HeuristicBucketer.matchesKeyword(lower, "tomorrow") -> {
+                    resolvedDate = today.plusDays(1)
+                }
+                HeuristicBucketer.matchesKeyword(lower, "tonight") ||
+                    HeuristicBucketer.matchesKeyword(lower, "today") -> {
+                    resolvedDate = today
+                }
+                HeuristicBucketer.matchesKeyword(lower, "next week") -> {
+                    resolvedDate = today.plusWeeks(1)
+                }
+            }
+        }
+
+        // 3. Weekday phrase ("on Thursday", "by Friday", "next Monday", "Thursday")
+        if (resolvedDate == null && explicitHourTime == null) {
+            val dayMatch = weekdayPhraseRegex.find(lower)
+            if (dayMatch != null) {
+                val qualifier = dayMatch.groupValues[1].lowercase(Locale.ROOT)
+                val dayName = dayMatch.groupValues[2].lowercase(Locale.ROOT)
+                val targetDow = dayMap[dayName]
+                if (targetDow != null) {
+                    resolvedDate = if (qualifier == "next") {
+                        today.with(TemporalAdjusters.next(targetDow))
+                    } else {
+                        today.with(TemporalAdjusters.nextOrSame(targetDow)).let { candidate ->
+                            if (candidate == today) today.with(TemporalAdjusters.next(targetDow)) else candidate
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Calendar month + day ("on November 15", "Dec 3rd")
+        if (resolvedDate == null && explicitHourTime == null) {
+            val mdMatch = monthDayRegex.find(lower)
+            if (mdMatch != null) {
+                val month = monthMap[mdMatch.groupValues[1].lowercase(Locale.ROOT)]
+                val dayOfMonth = mdMatch.groupValues[2].toIntOrNull()
+                if (month != null && dayOfMonth != null && dayOfMonth in 1..31) {
+                    val candidate = runCatching { LocalDate.of(today.year, month, dayOfMonth) }.getOrNull()
+                    if (candidate != null) {
+                        resolvedDate = if (candidate.isBefore(today)) candidate.plusYears(1) else candidate
+                    }
+                }
+            }
+        }
+
+        // 5. ISO date ("2026-11-15")
+        if (resolvedDate == null && explicitHourTime == null) {
+            val isoMatch = isoDateRegex.find(lower)
+            if (isoMatch != null) {
+                resolvedDate = runCatching { LocalDate.parse(isoMatch.value) }.getOrNull()
+            }
+        }
+
+        if (explicitHourTime != null) {
+            return explicitHourTime.atZone(zone).toInstant().toEpochMilli()
+        }
+
+        val resolvedTime = parseTimeOfDay(lower)
+        if (resolvedDate == null && resolvedTime != null) {
+            // Time-only phrase like "before noon" or "at 3pm" defaults to today (or tomorrow if already past)
+            val candidateDateTime = LocalDateTime.of(today, resolvedTime)
+            val finalDateTime = if (candidateDateTime.isBefore(now)) {
+                candidateDateTime.plusDays(1)
+            } else {
+                candidateDateTime
+            }
+            return finalDateTime.atZone(zone).toInstant().toEpochMilli()
+        }
+
+        if (resolvedDate == null) return null
+
+        val timeToUse = resolvedTime ?: defaultTimeForPhrase(lower)
+        return LocalDateTime.of(resolvedDate, timeToUse)
+            .atZone(zone)
+            .toInstant()
+            .toEpochMilli()
+    }
+
+    private fun parseTimeOfDay(lower: String): LocalTime? {
+        if (HeuristicBucketer.matchesKeyword(lower, "noon") ||
+            HeuristicBucketer.matchesKeyword(lower, "midday")
+        ) {
+            return LocalTime.of(12, 0)
+        }
+        if (HeuristicBucketer.matchesKeyword(lower, "midnight")) {
+            return LocalTime.of(23, 59)
+        }
+
+        val match = explicitTimeRegex.find(lower)
+        if (match != null) {
+            val hourStr = match.groupValues[1].ifEmpty { match.groupValues[4] }
+            val minuteStr = match.groupValues[2].ifEmpty { match.groupValues[5] }
+            val meridiem = match.groupValues[3].ifEmpty { match.groupValues[6] }
+                .replace(".", "")
+                .lowercase(Locale.ROOT)
+
+            val rawHour = hourStr.toIntOrNull() ?: return null
+            val minute = minuteStr.toIntOrNull() ?: 0
+            if (minute !in 0..59) return null
+
+            val hour24 = when (meridiem) {
+                "pm" -> if (rawHour in 1..11) rawHour + 12 else if (rawHour == 12) 12 else rawHour
+                "am" -> if (rawHour == 12) 0 else rawHour
+                else -> rawHour
+            }
+            if (hour24 in 0..23) {
+                return LocalTime.of(hour24, minute)
+            }
+        }
+
+        return when {
+            HeuristicBucketer.matchesKeyword(lower, "morning") -> LocalTime.of(9, 0)
+            HeuristicBucketer.matchesKeyword(lower, "afternoon") -> LocalTime.of(14, 0)
+            HeuristicBucketer.matchesKeyword(lower, "evening") ||
+                HeuristicBucketer.matchesKeyword(lower, "tonight") -> LocalTime.of(18, 0)
+            else -> null
+        }
+    }
+
+    private fun defaultTimeForPhrase(lower: String): LocalTime =
+        if (HeuristicBucketer.matchesKeyword(lower, "tonight")) {
+            LocalTime.of(18, 0)
+        } else {
+            LocalTime.of(9, 0)
+        }
+
+    private fun parseNumberToken(token: String): Long? = when (token.lowercase(Locale.ROOT)) {
+        "one" -> 1L
+        "two" -> 2L
+        "three" -> 3L
+        "four" -> 4L
+        "five" -> 5L
+        "six" -> 6L
+        "seven" -> 7L
+        else -> token.toLongOrNull()
     }
 }
