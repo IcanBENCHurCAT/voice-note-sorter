@@ -18,6 +18,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -34,10 +35,12 @@ import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.debug.DebugSeedToolbar
 import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
 import com.icanbenchurcat.voicenotes.ui.NotesListScreen
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -104,6 +107,7 @@ class MainActivity : ComponentActivity() {
                                     entry<NoteDetailKey> { key ->
                                         val note = notes.firstOrNull { it.id == key.noteId }
                                         if (note != null) {
+                                            val scope = rememberCoroutineScope()
                                             var actions by remember(note.id) {
                                                 mutableStateOf<List<ActionItem>>(emptyList())
                                             }
@@ -118,7 +122,16 @@ class MainActivity : ComponentActivity() {
                                                 note = note,
                                                 actions = actions,
                                                 tags = tags,
-                                                transcriberStatus = transcriberStatus
+                                                transcriberStatus = transcriberStatus,
+                                                onConfirmOrChangeBucket = { bucketKind ->
+                                                    scope.launch {
+                                                        dao.confirmOrChangeBucket(
+                                                            noteId = note.id,
+                                                            bucketKind = bucketKind,
+                                                            status = NoteStatus.SORTED.name
+                                                        )
+                                                    }
+                                                }
                                             )
                                         } else {
                                             Text("Note not found")

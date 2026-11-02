@@ -2,9 +2,18 @@
 
 package com.icanbenchurcat.voicenotes.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Fts4
 import androidx.room.PrimaryKey
+
+/** Explicit lifecycle / filing state for a [Note]. */
+enum class NoteStatus {
+    RECORDED,
+    TRANSCRIBED,
+    SORTED,
+    NEEDS_REVIEW
+}
 
 @Entity(tableName = "notes")
 data class Note(
@@ -18,7 +27,10 @@ data class Note(
     /** FULL / CORE / MINIMAL - the tier that actually processed the note. */
     val tierUsed: String = "MINIMAL",
     /** Comma-separated per-stage status, e.g. "transcribe:OK,bucket:OK". */
-    val stageStatus: String = ""
+    val stageStatus: String = "",
+    /** RECORDED / TRANSCRIBED / SORTED / NEEDS_REVIEW */
+    @ColumnInfo(defaultValue = "'RECORDED'")
+    val status: String = NoteStatus.RECORDED.name
 )
 
 @Entity(tableName = "buckets")

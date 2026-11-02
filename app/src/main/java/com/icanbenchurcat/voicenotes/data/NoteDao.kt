@@ -20,6 +20,16 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE bucketKind = :kind ORDER BY createdAtEpochMs DESC")
     fun observeByBucket(kind: String): Flow<List<Note>>
 
+    @Query("SELECT * FROM notes WHERE status = :status ORDER BY createdAtEpochMs DESC")
+    fun observeByStatus(status: String): Flow<List<Note>>
+
+    @Query("UPDATE notes SET bucketKind = :bucketKind, status = :status WHERE id = :noteId")
+    suspend fun confirmOrChangeBucket(
+        noteId: Long,
+        bucketKind: String,
+        status: String = "SORTED"
+    )
+
     @Query("SELECT * FROM notes WHERE id = :id")
     suspend fun byId(id: Long): Note?
 

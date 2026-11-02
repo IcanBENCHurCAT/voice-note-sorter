@@ -9,23 +9,93 @@ package com.icanbenchurcat.voicenotes.ai
  * behind the same Bucketer interface.
  */
 class HeuristicBucketer : Bucketer {
-    override suspend fun assign(transcript: String, profile: BucketProfile): BucketAssignment {
-        val lower = transcript.lowercase()
-        val match = profile.buckets.firstOrNull { def ->
-            def.keywords.any { kw -> lower.contains(kw.lowercase()) }
-        } ?: profile.buckets.firstOrNull { it.kind == "INBOX" }
-        ?: profile.buckets.first()
+    private data class CandidateScore(
+        val def: BucketDef,
+        val matchedKeywords: List<String>,
+        val totalMatches: Int
+    ) {
+        val distinctKeywordCount: Int get() = matchedKeywords.size
+    }
 
-        val matchedTags = match.keywords
-            .filter { kw -> lower.contains(kw.lowercase()) }
+    override suspend fun assign(transcript: String, profile: BucketProfile): BucketAssignment {
+        val candidates = profile.buckets.map { def ->
+            val matched = mutableListOf<String>()
+            var occurrences = 0
+            for (kw in def.keywords) {
+                val count = countWordBoundaryMatches(transcript, kw)
+                if (count > 0) {
+                    matched += kw
+                    occurrences += count
+                }
+            }
+            CandidateScore(def = def, matchedKeywords = matched, totalMatches = occurrences)
+        }
+
+        val positiveCandidates = candidates.filter { it.distinctKeywordCount > 0 }
+        val fallbackBucket = profile.buckets.firstOrNull { it.kind == "INBOX" }
+            ?: profile.buckets.first()
+
+        if (positiveCandidates.isEmpty()) {
+            return BucketAssignment(
+                bucketKind = fallbackBucket.kind,
+                tags = emptyList(),
+                tier = Tier.CORE,
+                confidence = 0.0f,
+                score = 0,
+                needsReview = true
+            )
+        }
+
+        val sorted = positiveCandidates.sortedWith(
+            compareByDescending<CandidateScore> { it.distinctKeywordCount }
+                .thenByDescending { it.totalMatches }
+        )
+        val winner = sorted.first()
+        val runnerUp = sorted.getOrNull(1)
+        val tiedTopScore = runnerUp != null &&
+            runnerUp.distinctKeywordCount == winner.distinctKeywordCount &&
+            runnerUp.totalMatches == winner.totalMatches
+
+        val matchedTags = winner.matchedKeywords
             .map { kw -> keywordToTag(kw) }
             .filter { it.isNotEmpty() }
             .distinct()
 
-        return BucketAssignment(match.kind, tags = matchedTags, tier = Tier.CORE)
+        val confidence = when {
+            tiedTopScore -> 0.5f
+            winner.distinctKeywordCount >= 2 -> 1.0f
+            else -> 0.8f
+        }
+
+        return BucketAssignment(
+            bucketKind = winner.def.kind,
+            tags = matchedTags,
+            tier = Tier.CORE,
+            confidence = confidence,
+            score = winner.distinctKeywordCount,
+            needsReview = tiedTopScore || winner.def.kind == "INBOX"
+        )
     }
 
     companion object {
+        fun matchesKeyword(text: String, keyword: String): Boolean =
+            countWordBoundaryMatches(text, keyword) > 0
+
+        fun countWordBoundaryMatches(text: String, keyword: String): Int {
+            val trimmed = keyword.trim()
+            if (trimmed.isEmpty() || text.isBlank()) return 0
+            val pattern = buildWordBoundaryPattern(trimmed)
+            return pattern.findAll(text).count()
+        }
+
+        private fun buildWordBoundaryPattern(keyword: String): Regex {
+            val tokens = keyword.lowercase()
+                .split(Regex("\\s+"))
+                .filter { it.isNotEmpty() }
+                .joinToString("\\s+") { Regex.escape(it) }
+            return Regex("(?<![a-z0-9])$tokens(?![a-z0-9])", RegexOption.IGNORE_CASE)
+        }
+
         fun keywordToTag(keyword: String): String =
             keyword.trim()
                 .lowercase()

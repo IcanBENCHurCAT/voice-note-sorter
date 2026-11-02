@@ -27,6 +27,7 @@ import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
+import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
 import kotlinx.coroutines.CancellationException
@@ -134,6 +135,14 @@ class InMemoryFakeNoteDao : NoteDao {
     override fun observeAll(): Flow<List<Note>> = flowOf(notes.values.toList())
     override fun observeByBucket(kind: String): Flow<List<Note>> =
         flowOf(notes.values.filter { it.bucketKind == kind })
+
+    override fun observeByStatus(status: String): Flow<List<Note>> =
+        flowOf(notes.values.filter { it.status == status })
+
+    override suspend fun confirmOrChangeBucket(noteId: Long, bucketKind: String, status: String) {
+        val existing = notes[noteId] ?: return
+        notes[noteId] = existing.copy(bucketKind = bucketKind, status = status)
+    }
 
     override suspend fun byId(id: Long): Note? = notes[id]
     override fun search(query: String): Flow<List<Note>> = flowOf(emptyList())
@@ -552,6 +561,7 @@ class SortingWorkerTest {
         )
 
         assertEquals("TASK", outcome.updatedNote.bucketKind)
+        assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
 
         // Assigned bucket exists as a Bucket row and default profile buckets are seeded
         val taskBucket = dao.bucketByKind("TASK")
@@ -570,5 +580,81 @@ class SortingWorkerTest {
             dao.allTags()
         )
         assertEquals(1, dao.observeByTag("buy").first().size)
+    }
+
+    @Test
+    fun noSignalTranscript_landsInInboxAndSetsNeedsReviewStatus() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.UNAVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE
+            ),
+            dataStore
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(
+                result = Transcript(
+                    "The buyer could not recall the afternoon schedule.",
+                    Tier.CORE
+                )
+            ),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao
+        )
+
+        assertEquals("INBOX", outcome.updatedNote.bucketKind)
+        assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
+        assertEquals(1, dao.observeByStatus(NoteStatus.NEEDS_REVIEW.name).first().size)
+
+        // Confirming or changing the bucket clears NEEDS_REVIEW to SORTED
+        dao.confirmOrChangeBucket(noteId = noteId, bucketKind = "NOTE", status = NoteStatus.SORTED.name)
+        val confirmed = dao.byId(noteId)!!
+        assertEquals("NOTE", confirmed.bucketKind)
+        assertEquals(NoteStatus.SORTED.name, confirmed.status)
+    }
+
+    @Test
+    fun stageThatFellBackAfterBusy_setsNeedsReviewStatusEvenWithStrongBucketMatch() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE
+            ),
+            dataStore
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(
+                result = Transcript("Remind me to call the electrician and buy wire.", Tier.FULL)
+            ),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(exception = CapabilityBusyException()),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            fallbackSummarizer = ExtractiveSummarizer(),
+            dao = dao
+        )
+
+        assertEquals("TASK", outcome.updatedNote.bucketKind)
+        assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
+        assertTrue(outcome.updatedNote.stageStatus.contains("summarize:BUSY"))
     }
 }

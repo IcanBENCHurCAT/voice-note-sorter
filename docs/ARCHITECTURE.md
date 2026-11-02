@@ -44,7 +44,7 @@ actually got, not the tier the marketing page promised.
 ## Data model (Room)
 
 - `Note` - id, createdAt, audioPath, transcript, title, summary,
-  bucketId, tierUsed, stageStatus
+  bucketKind, tierUsed, stageStatus, status (RECORDED / TRANSCRIBED / SORTED / NEEDS_REVIEW)
 - `Bucket` - id, name, kind (IDEA / TASK / NOTE / LIST / INBOX / custom)
 - `ActionItem` - id, noteId, text, dueAt (nullable), done
 - `Tag`, `NoteTag` - free-form labels, many-to-many
