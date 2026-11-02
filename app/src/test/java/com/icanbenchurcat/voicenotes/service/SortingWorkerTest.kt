@@ -12,8 +12,11 @@ import com.icanbenchurcat.voicenotes.ai.Bucketer
 import com.icanbenchurcat.voicenotes.ai.CapabilityBusyException
 import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
+import com.icanbenchurcat.voicenotes.ai.ExtractiveSummarizer
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
 import com.icanbenchurcat.voicenotes.ai.FakeCapabilityChecker
+import com.icanbenchurcat.voicenotes.ai.HeuristicActionExtractor
+import com.icanbenchurcat.voicenotes.ai.HeuristicBucketer
 import com.icanbenchurcat.voicenotes.ai.NullTranscriber
 import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
@@ -32,10 +35,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -154,9 +159,14 @@ class InMemoryFakeNoteDao : NoteDao {
     override suspend fun allBuckets(): List<Bucket> =
         buckets.values.sortedBy { it.kind }
 
+    override suspend fun bucketByKind(kind: String): Bucket? = buckets[kind]
+
     override suspend fun insertTags(tags: List<Tag>) {
         tags.forEach { this.tags += it.name }
     }
+
+    override suspend fun allTags(): List<Tag> =
+        tags.sorted().map { Tag(it) }
 
     override suspend fun insertNoteTags(noteTags: List<NoteTag>) {
         this.noteTags.addAll(noteTags)
@@ -168,6 +178,11 @@ class InMemoryFakeNoteDao : NoteDao {
 
     override suspend fun tagsFor(noteId: Long): List<String> =
         noteTags.filter { it.noteId == noteId }.map { it.tagName }.sorted()
+
+    override fun observeByTag(tagName: String): Flow<List<Note>> {
+        val matchingIds = noteTags.filter { it.tagName == tagName }.map { it.noteId }.toSet()
+        return flowOf(notes.values.filter { it.id in matchingIds })
+    }
 }
 
 class SortingWorkerTest {
@@ -503,5 +518,57 @@ class SortingWorkerTest {
         assertEquals(actionsAfterRun1, actionsAfterRun2)
         assertEquals(tagsAfterRun1, tagsAfterRun2)
         assertTrue(actionsAfterRun2.size == 2)
+    }
+
+    @Test
+    fun heuristicBucketerAndPipeline_persistDerivedTagsAndBucketRowInDatabase() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.UNAVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE
+            ),
+            dataStore
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(
+                result = Transcript(
+                    "Remind me to buy oat milk and call the electrician.",
+                    Tier.CORE
+                )
+            ),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao
+        )
+
+        assertEquals("TASK", outcome.updatedNote.bucketKind)
+
+        // Assigned bucket exists as a Bucket row and default profile buckets are seeded
+        val taskBucket = dao.bucketByKind("TASK")
+        assertNotNull(taskBucket)
+        assertEquals("Tasks", taskBucket?.name)
+        assertEquals(
+            setOf("IDEA", "INBOX", "LIST", "NOTE", "TASK"),
+            dao.allBuckets().map { it.kind }.toSet()
+        )
+
+        // HeuristicBucketer derived tags from matched keywords ("remind me", "buy", "call")
+        val savedTags = dao.tagsFor(noteId)
+        assertEquals(listOf("buy", "call", "remind-me"), savedTags)
+        assertEquals(
+            listOf(Tag("buy"), Tag("call"), Tag("remind-me")),
+            dao.allTags()
+        )
+        assertEquals(1, dao.observeByTag("buy").first().size)
     }
 }

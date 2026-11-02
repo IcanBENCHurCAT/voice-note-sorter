@@ -12,10 +12,25 @@ class HeuristicBucketer : Bucketer {
     override suspend fun assign(transcript: String, profile: BucketProfile): BucketAssignment {
         val lower = transcript.lowercase()
         val match = profile.buckets.firstOrNull { def ->
-            def.keywords.any { kw -> lower.contains(kw) }
+            def.keywords.any { kw -> lower.contains(kw.lowercase()) }
         } ?: profile.buckets.firstOrNull { it.kind == "INBOX" }
         ?: profile.buckets.first()
-        return BucketAssignment(match.kind, tags = emptyList(), tier = Tier.CORE)
+
+        val matchedTags = match.keywords
+            .filter { kw -> lower.contains(kw.lowercase()) }
+            .map { kw -> keywordToTag(kw) }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
+        return BucketAssignment(match.kind, tags = matchedTags, tier = Tier.CORE)
+    }
+
+    companion object {
+        fun keywordToTag(keyword: String): String =
+            keyword.trim()
+                .lowercase()
+                .replace(Regex("[^a-z0-9]+"), "-")
+                .trim('-')
     }
 }
 
