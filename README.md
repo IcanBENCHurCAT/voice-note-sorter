@@ -52,6 +52,7 @@ always a correction the user can make, never work the user must do.
   `POST_PROMOTED_NOTIFICATIONS`, for Live Updates); and the foreground
   service permissions recording requires (`FOREGROUND_SERVICE`,
   `FOREGROUND_SERVICE_MICROPHONE`). No INTERNET permission.
+- Cloud backups and device-to-device transfers explicitly exclude the Room database and note audio files via `data_extraction_rules.xml` and `backup_rules.xml`, guaranteeing that transcripts and private recordings are never uploaded to Google Drive or transferred off-device during migrations.
 - Zero running cost is a feature. There is no backend to pay for.
 
 ## Repository split and licensing (read this before contributing)
