@@ -121,7 +121,7 @@ class HeuristicBucketer : Bucketer {
 object TranscriptSegmenter {
     private val terminalSplitRegex = Regex("(?<=[.!?])\\s+|\\r?\\n+")
     private val discourseMarkerSplitRegex = Regex(
-        "\\s+(?<!\\bto\\s+)(?<!\\balso\\s+)(?=(?:" +
+        "\\s+(?=(?:" +
             "remind me|don't forget|do not forget|remember to|" +
             "i need to|we need to|need to|have to|must|should|" +
             "and then|after that|finally|secondly|thirdly|" +
@@ -153,9 +153,18 @@ object TranscriptSegmenter {
     }
 
     private fun segmentChunk(chunk: String): List<String> {
-        val clauses = chunk.split(discourseMarkerSplitRegex)
+        val rawClauses = chunk.split(discourseMarkerSplitRegex)
             .map { it.trim().trim(',', ';') }
             .filter { it.isNotEmpty() }
+
+        val clauses = mutableListOf<String>()
+        for (clause in rawClauses) {
+            if (clauses.isNotEmpty() && (clauses.last().endsWith(" to", ignoreCase = true) || clauses.last().endsWith(" also", ignoreCase = true))) {
+                clauses[clauses.lastIndex] = clauses.last() + " " + clause
+            } else {
+                clauses += clause
+            }
+        }
 
         val refined = mutableListOf<String>()
         for (clause in clauses) {
