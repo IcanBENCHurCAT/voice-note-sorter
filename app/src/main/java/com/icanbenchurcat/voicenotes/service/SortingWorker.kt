@@ -25,6 +25,7 @@ import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
+import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
 import kotlinx.coroutines.CancellationException
@@ -175,7 +176,8 @@ class SortingWorker(
                 currentNote = currentNote.copy(
                     stageStatus = stages.joinToString(","),
                     transcript = transcript?.text ?: "",
-                    tierUsed = tierToSave
+                    tierUsed = tierToSave,
+                    status = NoteStatus.RECORDED.name
                 )
                 dao?.update(currentNote)
                 return PipelineOutcome(
@@ -189,7 +191,8 @@ class SortingWorker(
             currentNote = currentNote.copy(
                 transcript = transcript.text,
                 tierUsed = transcript.tier.name,
-                stageStatus = stages.joinToString(",")
+                stageStatus = stages.joinToString(","),
+                status = NoteStatus.TRANSCRIBED.name
             )
             dao?.update(currentNote)
 
@@ -329,18 +332,35 @@ class SortingWorker(
                     dao?.insertNoteTags(distinctTags.map { NoteTag(noteId = currentNote.id, tagName = it) })
                 }
                 persistedTags = dao?.tagsFor(currentNote.id) ?: distinctTags
+                val hadStageDegradation = stages.any { it.endsWith(":BUSY") || it.endsWith(":FAILED") }
+                val weakBucketEvidence = assignment.needsReview ||
+                    assignment.bucketKind == "INBOX" ||
+                    assignment.confidence < 0.7f ||
+                    assignment.score <= 0
+                val finalStatus = if (hadStageDegradation || weakBucketEvidence) {
+                    NoteStatus.NEEDS_REVIEW.name
+                } else {
+                    NoteStatus.SORTED.name
+                }
                 currentNote = currentNote.copy(
                     bucketKind = assignment.bucketKind,
-                    stageStatus = stages.joinToString(",")
+                    stageStatus = stages.joinToString(","),
+                    status = finalStatus
                 )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: CapabilityBusyException) {
                 stages += "bucket:BUSY"
-                currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
+                currentNote = currentNote.copy(
+                    stageStatus = stages.joinToString(","),
+                    status = NoteStatus.NEEDS_REVIEW.name
+                )
             } catch (e: Exception) {
                 stages += "bucket:FAILED"
-                currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
+                currentNote = currentNote.copy(
+                    stageStatus = stages.joinToString(","),
+                    status = NoteStatus.NEEDS_REVIEW.name
+                )
             }
             dao?.update(currentNote)
 

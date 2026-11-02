@@ -19,6 +19,7 @@ import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +60,8 @@ object DebugSeedData {
                 summary = "White-label bucket profile sorting site voice notes into punch-list items, change orders, and material requests.",
                 bucketKind = "IDEA",
                 tierUsed = "FULL",
-                stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK"
+                stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK",
+                status = NoteStatus.SORTED.name
             )
         )
 
@@ -73,7 +75,8 @@ object DebugSeedData {
                 summary = "Call electrician before noon, send floor plan PDF to Dana, and buy cabinet hinges.",
                 bucketKind = "TASK",
                 tierUsed = "FULL",
-                stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK"
+                stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK",
+                status = NoteStatus.SORTED.name
             )
         )
 
@@ -87,11 +90,12 @@ object DebugSeedData {
                 summary = "Weekend shopping list: espresso beans, oat milk, sourdough flour, cast iron seasoning oil, and AA batteries.",
                 bucketKind = "LIST",
                 tierUsed = "CORE",
-                stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK"
+                stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK",
+                status = NoteStatus.SORTED.name
             )
         )
 
-        // 4. NOTE bucket (Tier 2 CORE)
+        // 4. NOTE bucket (Tier 2 CORE, flagged Needs Review after low-confidence / default filing)
         dao.insert(
             Note(
                 createdAtEpochMs = baseTimeMs + 20_000L,
@@ -101,7 +105,8 @@ object DebugSeedData {
                 summary = "Architecture meeting recap: keep the open-core app in a single module until the closed Pro repository exists.",
                 bucketKind = "NOTE",
                 tierUsed = "CORE",
-                stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK"
+                stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK",
+                status = NoteStatus.NEEDS_REVIEW.name
             )
         )
 
@@ -115,7 +120,8 @@ object DebugSeedData {
                 summary = "",
                 bucketKind = "INBOX",
                 tierUsed = "MINIMAL",
-                stageStatus = "transcribe:UNAVAILABLE,title:FALLBACK,actions:SKIPPED,bucket:DEFAULT"
+                stageStatus = "transcribe:UNAVAILABLE,title:FALLBACK,actions:SKIPPED,bucket:DEFAULT",
+                status = NoteStatus.RECORDED.name
             )
         )
 

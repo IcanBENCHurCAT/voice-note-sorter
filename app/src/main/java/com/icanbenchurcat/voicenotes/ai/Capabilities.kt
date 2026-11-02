@@ -46,7 +46,14 @@ interface Bucketer {
     suspend fun assign(transcript: String, profile: BucketProfile): BucketAssignment
 }
 
-data class BucketAssignment(val bucketKind: String, val tags: List<String>, val tier: Tier)
+data class BucketAssignment(
+    val bucketKind: String,
+    val tags: List<String>,
+    val tier: Tier,
+    val confidence: Float = 1.0f,
+    val score: Int = 1,
+    val needsReview: Boolean = false
+)
 
 data class BucketProfile(val buckets: List<BucketDef>)
 

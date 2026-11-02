@@ -12,7 +12,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.NoteStatus
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -71,5 +73,72 @@ class MainActivitySmokeTest {
 
         composeRule.onNodeWithText("Pick up coffee beans and oat milk on the way home.").assertIsDisplayed()
         composeRule.onNodeWithText("Pipeline: transcribe:OK,title:OK,actions:OK,bucket:OK").assertIsDisplayed()
+    }
+
+    @Test
+    fun needsReviewBadgeFilterAndConfirmBucket_clearsNeedsReviewState() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dao = AppDatabase.get(context).noteDao()
+
+        var reviewNoteId = 0L
+        runBlocking {
+            dao.insert(
+                Note(
+                    createdAtEpochMs = 1_700_000_010_000L,
+                    audioPath = "/data/local/tmp/sorted.m4a",
+                    transcript = "Remind me to call the electrician.",
+                    title = "Call electrician",
+                    summary = "Call the electrician.",
+                    bucketKind = "TASK",
+                    tierUsed = "CORE",
+                    stageStatus = "transcribe:OK,summarize:OK,actions:OK,bucket:OK",
+                    status = NoteStatus.SORTED.name
+                )
+            )
+            reviewNoteId = dao.insert(
+                Note(
+                    createdAtEpochMs = 1_700_000_020_000L,
+                    audioPath = "/data/local/tmp/uncertain.m4a",
+                    transcript = "Walked through the courtyard after lunch.",
+                    title = "Courtyard observation",
+                    summary = "Walked through the courtyard after lunch.",
+                    bucketKind = "INBOX",
+                    tierUsed = "CORE",
+                    stageStatus = "transcribe:OK,summarize:OK,actions:OK,bucket:OK",
+                    status = NoteStatus.NEEDS_REVIEW.name
+                )
+            )
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Courtyard observation")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Verify Needs review badge and filter chip are displayed
+        composeRule.onNodeWithContentDescription("Needs review badge").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Filter Needs Review notes").performClick()
+
+        // Filtered list shows only the Needs Review note
+        composeRule.onNodeWithText("Courtyard observation").assertIsDisplayed()
+        assertEquals(
+            0,
+            composeRule.onAllNodesWithText("Call electrician").fetchSemanticsNodes().size
+        )
+
+        // Open the Needs Review note and change its bucket to NOTE (clearing NEEDS_REVIEW)
+        composeRule.onNodeWithText("Courtyard observation").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Confirm filing (INBOX)")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithContentDescription("File in NOTE").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            runBlocking { dao.byId(reviewNoteId)?.status == NoteStatus.SORTED.name }
+        }
+        val updated = runBlocking { dao.byId(reviewNoteId)!! }
+        assertEquals("NOTE", updated.bucketKind)
+        assertEquals(NoteStatus.SORTED.name, updated.status)
     }
 }
