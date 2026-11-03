@@ -34,10 +34,13 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
+import com.icanbenchurcat.voicenotes.data.Bucket
+import com.icanbenchurcat.voicenotes.data.BucketManager
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDeletionCoordinator
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.debug.DebugSeedToolbar
+import com.icanbenchurcat.voicenotes.ui.BucketManagementDialog
 import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
 import com.icanbenchurcat.voicenotes.ui.NotesListScreen
 import androidx.lifecycle.viewModelScope
@@ -98,12 +101,37 @@ class MainActivity : ComponentActivity() {
                 val backStack = rememberNavBackStack(NotesListKey)
                 val vm = remember { NotesViewModel(dao) }
                 val notes by vm.notes.collectAsState(initial = emptyList())
+                val buckets by dao.observeAllBuckets().collectAsState(initial = emptyList())
+                val bucketManager = remember { BucketManager(dao) }
+                var showBucketManagementDialog by remember { mutableStateOf(false) }
+                val coroutineScope = rememberCoroutineScope()
                 var deviceTier by remember { mutableStateOf<Tier?>(null) }
                 var transcriberStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
 
                 LaunchedEffect(Unit) {
                     transcriberStatus = capabilityProbe.transcriberStatus()
                     deviceTier = capabilityProbe.resolveDeviceTier()
+                }
+
+                if (showBucketManagementDialog) {
+                    BucketManagementDialog(
+                        buckets = buckets,
+                        onDismissRequest = { showBucketManagementDialog = false },
+                        onRenameBucket = { kind, newName ->
+                            coroutineScope.launch {
+                                bucketManager.renameBucket(kind, newName)
+                            }
+                        },
+                        onAddBucket = { kind, name ->
+                            coroutineScope.launch {
+                                try {
+                                    bucketManager.addCustomBucket(kind, name)
+                                } catch (e: Exception) {
+                                    // Logged / prevented by validation
+                                }
+                            }
+                        }
+                    )
                 }
 
                 Scaffold(
@@ -144,7 +172,8 @@ class MainActivity : ComponentActivity() {
                                             notes = notes,
                                             searchQuery = searchQuery,
                                             onSearchQueryChange = vm::onSearchQueryChange,
-                                            deviceTier = deviceTier
+                                            deviceTier = deviceTier,
+                                            onManageBuckets = { showBucketManagementDialog = true }
                                         ) { note ->
                                             backStack.add(NoteDetailKey(note.id))
                                         }
@@ -168,6 +197,7 @@ class MainActivity : ComponentActivity() {
                                                 actions = actions,
                                                 tags = tags,
                                                 transcriberStatus = transcriberStatus,
+                                                buckets = buckets,
                                                 onConfirmOrChangeBucket = { bucketKind ->
                                                     scope.launch {
                                                         dao.confirmOrChangeBucket(
@@ -184,7 +214,8 @@ class MainActivity : ComponentActivity() {
                                                             backStack.removeLastOrNull()
                                                         }
                                                     }
-                                                }
+                                                },
+                                                onManageBuckets = { showBucketManagementDialog = true }
                                             )
                                         } else {
                                             LaunchedEffect(key.noteId) {

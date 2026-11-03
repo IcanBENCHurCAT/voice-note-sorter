@@ -21,6 +21,8 @@ import com.icanbenchurcat.voicenotes.data.NoteDao
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 
 class FakeTranscriber(
@@ -92,6 +94,7 @@ class InMemoryFakeNoteDao : NoteDao {
     val updateSnapshots = mutableListOf<Note>()
     private val actions = mutableListOf<ActionItem>()
     private val buckets = mutableMapOf<String, Bucket>()
+    private val _bucketsFlow = MutableStateFlow<List<Bucket>>(emptyList())
     private val tags = mutableSetOf<String>()
     private val noteTags = mutableSetOf<NoteTag>()
 
@@ -162,14 +165,29 @@ class InMemoryFakeNoteDao : NoteDao {
     override suspend fun actionsFor(noteId: Long): List<ActionItem> =
         actions.filter { it.noteId == noteId }.sortedBy { it.id }
 
+    override suspend fun insertBucket(bucket: Bucket): Long {
+        this.buckets[bucket.kind] = bucket
+        _bucketsFlow.value = this.buckets.values.sortedBy { it.kind }
+        return 1L
+    }
+
     override suspend fun insertBuckets(buckets: List<Bucket>) {
         buckets.forEach { this.buckets[it.kind] = it }
+        _bucketsFlow.value = this.buckets.values.sortedBy { it.kind }
     }
+
+    override fun observeAllBuckets(): Flow<List<Bucket>> = _bucketsFlow.asStateFlow()
 
     override suspend fun allBuckets(): List<Bucket> =
         buckets.values.sortedBy { it.kind }
 
     override suspend fun bucketByKind(kind: String): Bucket? = buckets[kind]
+
+    override suspend fun renameBucket(kind: String, newName: String) {
+        val existing = buckets[kind] ?: return
+        buckets[kind] = existing.copy(name = newName)
+        _bucketsFlow.value = buckets.values.sortedBy { it.kind }
+    }
 
     override suspend fun insertTags(tags: List<Tag>) {
         tags.forEach { this.tags += it.name }

@@ -61,13 +61,22 @@ interface NoteDao {
     suspend fun actionsFor(noteId: Long): List<ActionItem>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBucket(bucket: Bucket): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBuckets(buckets: List<Bucket>)
+
+    @Query("SELECT * FROM buckets ORDER BY kind ASC")
+    fun observeAllBuckets(): Flow<List<Bucket>>
 
     @Query("SELECT * FROM buckets ORDER BY kind ASC")
     suspend fun allBuckets(): List<Bucket>
 
     @Query("SELECT * FROM buckets WHERE kind = :kind LIMIT 1")
     suspend fun bucketByKind(kind: String): Bucket?
+
+    @Query("UPDATE buckets SET name = :newName WHERE kind = :kind")
+    suspend fun renameBucket(kind: String, newName: String)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTags(tags: List<Tag>)

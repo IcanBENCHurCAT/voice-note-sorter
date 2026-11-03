@@ -41,6 +41,7 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.data.ActionItem
+import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 
@@ -53,6 +54,7 @@ fun NotesListScreen(
     searchQuery: String = "",
     onSearchQueryChange: (String) -> Unit = {},
     deviceTier: Tier? = null,
+    onManageBuckets: (() -> Unit)? = null,
     onOpen: (Note) -> Unit
 ) {
     var filterNeedsReviewOnly by rememberSaveable { mutableStateOf(false) }
@@ -114,20 +116,31 @@ fun NotesListScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            FilterChip(
-                selected = !filterNeedsReviewOnly,
-                onClick = { filterNeedsReviewOnly = false },
-                label = { Text("All (${notes.size})") },
-                modifier = Modifier.semantics { contentDescription = "Filter all notes" }
-            )
-            FilterChip(
-                selected = filterNeedsReviewOnly,
-                onClick = { filterNeedsReviewOnly = !filterNeedsReviewOnly },
-                label = { Text("Needs review ($needsReviewCount)") },
-                modifier = Modifier.semantics { contentDescription = "Filter Needs Review notes" }
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = !filterNeedsReviewOnly,
+                    onClick = { filterNeedsReviewOnly = false },
+                    label = { Text("All (${notes.size})") },
+                    modifier = Modifier.semantics { contentDescription = "Filter all notes" }
+                )
+                FilterChip(
+                    selected = filterNeedsReviewOnly,
+                    onClick = { filterNeedsReviewOnly = !filterNeedsReviewOnly },
+                    label = { Text("Needs review ($needsReviewCount)") },
+                    modifier = Modifier.semantics { contentDescription = "Filter Needs Review notes" }
+                )
+            }
+            if (onManageBuckets != null) {
+                OutlinedButton(
+                    onClick = onManageBuckets,
+                    modifier = Modifier.semantics { contentDescription = "Manage buckets" }
+                ) {
+                    Text(stringResource(R.string.action_manage_buckets))
+                }
+            }
         }
 
         if (displayedNotes.isEmpty()) {
@@ -203,8 +216,10 @@ fun NoteDetailScreen(
     tags: List<String> = emptyList(),
     transcriberStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     availableBuckets: List<String> = DefaultBucketProfileProvider.profile().buckets.map { it.kind },
+    buckets: List<Bucket> = emptyList(),
     onConfirmOrChangeBucket: (String) -> Unit = {},
-    onDeleteNote: () -> Unit = {}
+    onDeleteNote: () -> Unit = {},
+    onManageBuckets: (() -> Unit)? = null
 ) {
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
@@ -290,20 +305,35 @@ fun NoteDetailScreen(
                 Text("Confirm filing (${note.bucketKind})")
             }
         }
-        if (availableBuckets.isNotEmpty()) {
+        val effectiveBuckets = remember(availableBuckets, buckets) {
+            if (buckets.isNotEmpty()) {
+                buckets.map { it.kind to it.name }
+            } else {
+                availableBuckets.map { it to it }
+            }
+        }
+        if (effectiveBuckets.isNotEmpty()) {
             FlowRow(
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                availableBuckets.forEach { bucketKind ->
+                effectiveBuckets.forEach { (bucketKind, bucketName) ->
                     FilterChip(
                         selected = note.bucketKind == bucketKind && note.status == NoteStatus.SORTED.name,
                         onClick = { onConfirmOrChangeBucket(bucketKind) },
-                        label = { Text(bucketKind) },
+                        label = { Text(bucketName) },
                         modifier = Modifier.semantics {
                             contentDescription = "File in $bucketKind"
                         }
                     )
+                }
+                if (onManageBuckets != null) {
+                    TextButton(
+                        onClick = onManageBuckets,
+                        modifier = Modifier.semantics { contentDescription = "Manage buckets" }
+                    ) {
+                        Text(stringResource(R.string.action_manage_buckets))
+                    }
                 }
             }
         }
