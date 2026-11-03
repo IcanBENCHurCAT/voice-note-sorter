@@ -128,12 +128,12 @@ class MainActivity : ComponentActivity() {
                         buckets = buckets,
                         onDismissRequest = { showBucketManagementDialog = false },
                         onRenameBucket = { kind, newName ->
-                            coroutineScope.launch {
+                            scope.launch {
                                 bucketManager.renameBucket(kind, newName)
                             }
                         },
                         onAddBucket = { kind, name ->
-                            coroutineScope.launch {
+                            scope.launch {
                                 try {
                                     bucketManager.addCustomBucket(kind, name)
                                 } catch (e: Exception) {
