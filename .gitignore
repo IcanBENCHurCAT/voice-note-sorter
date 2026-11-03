@@ -17,7 +17,6 @@ captures/
 keystore.properties
 
 # Generated
-app/schemas/
 
 # Exclude closed-repo artefacts
 pro/
