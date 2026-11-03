@@ -35,6 +35,7 @@ import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.NoteDeletionCoordinator
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.debug.DebugSeedToolbar
 import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
@@ -88,6 +89,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val db = AppDatabase.get(this)
         val dao = db.noteDao()
+        val deletionCoordinator = NoteDeletionCoordinator.fromContext(this)
         val capabilityProbe = CapabilityProbe.get(this)
         // TODO(capture): EXTRA_START_RECORDING from the QS tile / widget
         // deep-links straight into the recorder once capture lands.
@@ -118,7 +120,11 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) { padding ->
-                    Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                    ) {
                         DebugSeedToolbar(
                             db = db,
                             onReset = {
@@ -169,6 +175,14 @@ class MainActivity : ComponentActivity() {
                                                             bucketKind = bucketKind,
                                                             status = NoteStatus.SORTED.name
                                                         )
+                                                    }
+                                                },
+                                                onDeleteNote = {
+                                                    scope.launch {
+                                                        deletionCoordinator.deleteNote(note.id)
+                                                        if (backStack.lastOrNull() == key) {
+                                                            backStack.removeLastOrNull()
+                                                        }
                                                     }
                                                 }
                                             )
