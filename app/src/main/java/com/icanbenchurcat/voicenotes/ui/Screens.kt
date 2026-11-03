@@ -15,14 +15,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,22 +63,10 @@ fun NotesListScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         if (deviceTier != null) {
             Text(
-                text = "Device capability tier: ${deviceTier.name}",
+                text = "Device capability: $deviceTier",
                 style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
-        }
-        if (notes.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "No voice notes yet. Tap Record to capture a thought.",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            }
-            return
         }
         Row(
             modifier = Modifier
@@ -164,17 +156,64 @@ fun NoteDetailScreen(
     tags: List<String> = emptyList(),
     transcriberStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     availableBuckets: List<String> = DefaultBucketProfileProvider.profile().buckets.map { it.kind },
-    onConfirmOrChangeBucket: (String) -> Unit = {}
+    onConfirmOrChangeBucket: (String) -> Unit = {},
+    onDeleteNote: () -> Unit = {}
 ) {
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text(stringResource(R.string.dialog_delete_note_title)) },
+            text = { Text(stringResource(R.string.dialog_delete_note_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirmDialog = false
+                        onDeleteNote()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.semantics { contentDescription = "Confirm delete note" }
+                ) {
+                    Text(stringResource(R.string.dialog_delete_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteConfirmDialog = false },
+                    modifier = Modifier.semantics { contentDescription = "Cancel delete note" }
+                ) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text(
-            text = note.title.ifBlank { "Untitled note" },
-            style = MaterialTheme.typography.headlineSmall
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = note.title.ifBlank { "Untitled note" },
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            OutlinedButton(
+                onClick = { showDeleteConfirmDialog = true },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .semantics { contentDescription = "Delete note" }
+            ) {
+                Text(stringResource(R.string.action_delete_note))
+            }
+        }
         val bucketDesc = stringResource(R.string.cd_note_bucket, note.bucketKind)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),

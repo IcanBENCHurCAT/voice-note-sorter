@@ -105,6 +105,17 @@ class InMemoryFakeNoteDao : NoteDao {
         updateSnapshots += note
     }
 
+    override suspend fun delete(note: Note) {
+        notes.remove(note.id)
+    }
+
+    override suspend fun deleteNoteById(id: Long) {
+        notes.remove(id)
+    }
+
+    override suspend fun allAudioPaths(): List<String> =
+        notes.values.map { it.audioPath }
+
     override fun observeAll(): Flow<List<Note>> = flowOf(notes.values.toList())
 
     override fun observeByBucket(kind: String): Flow<List<Note>> =
@@ -120,7 +131,15 @@ class InMemoryFakeNoteDao : NoteDao {
 
     override suspend fun byId(id: Long): Note? = notes[id]
 
-    override fun search(query: String): Flow<List<Note>> = flowOf(emptyList())
+    override fun search(query: String): Flow<List<Note>> {
+        val q = query.lowercase().trim()
+        val matching = notes.values.filter { note ->
+            note.title.lowercase().contains(q) ||
+                note.transcript.lowercase().contains(q) ||
+                note.summary.lowercase().contains(q)
+        }
+        return flowOf(matching)
+    }
 
     override suspend fun insertActions(items: List<ActionItem>) {
         items.forEach { item ->
@@ -131,6 +150,10 @@ class InMemoryFakeNoteDao : NoteDao {
 
     override suspend fun deleteActionsForNote(noteId: Long) {
         actions.removeAll { it.noteId == noteId }
+    }
+
+    override suspend fun deleteAllActions() {
+        actions.clear()
     }
 
     override suspend fun actionsFor(noteId: Long): List<ActionItem> =
@@ -152,6 +175,10 @@ class InMemoryFakeNoteDao : NoteDao {
     override suspend fun allTags(): List<Tag> =
         tags.sorted().map { Tag(it) }
 
+    override suspend fun deleteAllTags() {
+        tags.clear()
+    }
+
     override suspend fun insertNoteTags(noteTags: List<NoteTag>) {
         this.noteTags.addAll(noteTags)
     }
@@ -160,11 +187,19 @@ class InMemoryFakeNoteDao : NoteDao {
         noteTags.removeAll { it.noteId == noteId }
     }
 
+    override suspend fun deleteAllNoteTags() {
+        noteTags.clear()
+    }
+
     override suspend fun tagsFor(noteId: Long): List<String> =
         noteTags.filter { it.noteId == noteId }.map { it.tagName }.sorted()
 
     override fun observeByTag(tagName: String): Flow<List<Note>> {
         val matchingIds = noteTags.filter { it.tagName == tagName }.map { it.noteId }.toSet()
         return flowOf(notes.values.filter { it.id in matchingIds })
+    }
+
+    override suspend fun deleteAllNoteRows() {
+        notes.clear()
     }
 }

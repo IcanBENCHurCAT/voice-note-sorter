@@ -10,4 +10,9 @@
     <string name="cd_note_meta">Filed as %1$s, %2$s</string>
     <string name="cd_note_bucket">Filed as %1$s</string>
     <string name="cd_note_pipeline">Pipeline status: %1$s</string>
+    <string name="action_delete_note">Delete note</string>
+    <string name="dialog_delete_note_title">Delete note?</string>
+    <string name="dialog_delete_note_message">This permanently deletes the note, its transcript, action items, tags, search index entries, and recorded audio.</string>
+    <string name="dialog_delete_confirm">Delete</string>
+    <string name="dialog_cancel">Cancel</string>
 </resources>
