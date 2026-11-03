@@ -165,7 +165,7 @@ object DebugSeedData {
 }
 
 @Composable
-fun DebugSeedToolbar(db: AppDatabase) {
+fun DebugSeedToolbar(db: AppDatabase, onReset: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     Row(
         modifier = Modifier
@@ -174,13 +174,23 @@ fun DebugSeedToolbar(db: AppDatabase) {
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         OutlinedButton(
-            onClick = { scope.launch { DebugSeedData.seed(db) } },
+            onClick = {
+                scope.launch {
+                    DebugSeedData.seed(db)
+                    onReset()
+                }
+            },
             modifier = Modifier.semantics { contentDescription = "Seed sample data" }
         ) {
             Text("Seed sample data")
         }
         OutlinedButton(
-            onClick = { scope.launch { DebugSeedData.clear(db) } },
+            onClick = {
+                scope.launch {
+                    DebugSeedData.clear(db)
+                    onReset()
+                }
+            },
             modifier = Modifier.semantics { contentDescription = "Clear seed data" }
         ) {
             Text("Clear data")
