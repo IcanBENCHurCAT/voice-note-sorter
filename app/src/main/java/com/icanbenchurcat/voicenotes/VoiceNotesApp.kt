@@ -3,9 +3,8 @@
 package com.icanbenchurcat.voicenotes
 
 import android.app.Application
-import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.data.AppDatabase
-import com.icanbenchurcat.voicenotes.data.Bucket
+import com.icanbenchurcat.voicenotes.data.BucketManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,10 +22,8 @@ class VoiceNotesApp : Application() {
         // network, no SDK parades. Local-only is the product.
         val db = AppDatabase.get(this)
         appScope.launch {
-            val defaultBuckets = DefaultBucketProfileProvider.profile().buckets.map {
-                Bucket(kind = it.kind, name = it.name)
-            }
-            db.noteDao().insertBuckets(defaultBuckets)
+            val bucketManager = BucketManager(db.noteDao())
+            bucketManager.seedDefaultsIfEmpty()
         }
     }
 }

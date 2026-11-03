@@ -18,6 +18,17 @@
     <string name="dialog_delete_note_message">This permanently deletes the note, its transcript, action items, tags, search index entries, and recorded audio.</string>
     <string name="dialog_delete_confirm">Delete</string>
     <string name="dialog_cancel">Cancel</string>
+    <string name="action_manage_buckets">Manage buckets</string>
+    <string name="dialog_manage_buckets_title">Manage Buckets</string>
+    <string name="dialog_rename_bucket_title">Rename Bucket</string>
+    <string name="dialog_add_bucket_title">Add Custom Bucket</string>
+    <string name="bucket_name_label">Bucket name</string>
+    <string name="bucket_kind_label">Identifier (optional)</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_add_bucket">Add bucket</string>
+    <string name="action_save">Save</string>
+    <string name="max_custom_buckets_reached">Maximum 4 custom buckets reached</string>
+    <string name="error_empty_bucket_name">Bucket name cannot be empty</string>
     <string name="tab_notes">Notes</string>
     <string name="tab_tasks">Tasks</string>
     <string name="tasks_empty_state">No tasks yet. Action items extracted from voice notes will appear here.</string>
