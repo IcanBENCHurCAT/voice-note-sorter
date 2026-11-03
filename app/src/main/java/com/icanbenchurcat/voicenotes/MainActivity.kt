@@ -40,7 +40,18 @@ import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.debug.DebugSeedToolbar
 import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
 import com.icanbenchurcat.voicenotes.ui.NotesListScreen
+import androidx.lifecycle.viewModelScope
+import com.icanbenchurcat.voicenotes.data.FtsQuerySanitizer
+import com.icanbenchurcat.voicenotes.data.NoteDao
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
@@ -50,8 +61,26 @@ data object NotesListKey : NavKey
 @Serializable
 data class NoteDetailKey(val noteId: Long) : NavKey
 
-class NotesViewModel(private val notesFlow: Flow<List<Note>>) : ViewModel() {
-    val notes: Flow<List<Note>> = notesFlow
+@OptIn(ExperimentalCoroutinesApi::class)
+class NotesViewModel(private val dao: NoteDao) : ViewModel() {
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    val notes: Flow<List<Note>> = _searchQuery
+        .flatMapLatest { query ->
+            val sanitized = FtsQuerySanitizer.sanitize(query)
+            if (sanitized != null) {
+                dao.search(sanitized)
+            } else if (query.isNotBlank()) {
+                flowOf(emptyList())
+            } else {
+                dao.observeAll()
+            }
+        }
+
+    fun onSearchQueryChange(query: String) {
+        _searchQuery.value = query
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -67,7 +96,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 val backStack = rememberNavBackStack(NotesListKey)
-                val vm = remember { NotesViewModel(dao.observeAll()) }
+                val vm = remember { NotesViewModel(dao) }
                 val notes by vm.notes.collectAsState(initial = emptyList())
                 var deviceTier by remember { mutableStateOf<Tier?>(null) }
                 var transcriberStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
@@ -110,8 +139,11 @@ class MainActivity : ComponentActivity() {
                                 onBack = { backStack.removeLastOrNull() },
                                 entryProvider = entryProvider {
                                     entry<NotesListKey> {
+                                        val searchQuery by vm.searchQuery.collectAsState()
                                         NotesListScreen(
                                             notes = notes,
+                                            searchQuery = searchQuery,
+                                            onSearchQueryChange = vm::onSearchQueryChange,
                                             deviceTier = deviceTier
                                         ) { note ->
                                             backStack.add(NoteDetailKey(note.id))
