@@ -20,6 +20,10 @@ build is verified against the same checklist and results are recorded honestly.
 | **Physical Tier 2 Device** | API 31+ | Real microphone, `SpeechRecognizer`, foreground service, Glance host, Quick Settings tile, TalkBack | **Required** (pre-release / hardware pass) | Any API 31+ phone without Gemini Nano / AICore |
 | **Physical Tier 3 Flagship** | API 35+ with AICore / Gemini Nano | ML Kit GenAI Speech Recognition & Prompt API, runtime `BUSY`/quota demotion | **Optional** (when hardware available) | Pixel 9 / 10 Pro or Galaxy S24 / S25 series with AICore enabled |
 
+> [!TIP]
+> **Capturing Screenshots on Windows:**
+> When capturing screenshots from `adb`, never use PowerShell `>` redirection (e.g. `adb exec-out screencap -p > file.png` decodes binary stdout as text and corrupts it as UTF-16LE). Use `adb shell screencap -p /sdcard/s.png; adb pull /sdcard/s.png file.png` or a binary Python stream. When embedding images in reports or artifacts, encode as base64 data URIs (`data:image/webp;base64,...`) so webview/markdown previewers render them without local filesystem restrictions.
+
 ---
 
 ## 2. Section A — Scaffold & Seeded Surface Pass (Shipped Today)

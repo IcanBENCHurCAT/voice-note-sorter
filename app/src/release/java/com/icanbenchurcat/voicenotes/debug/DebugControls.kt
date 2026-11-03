@@ -9,4 +9,4 @@ import com.icanbenchurcat.voicenotes.data.AppDatabase
  * Release no-op: release builds contain no seed data and no seed UI entry point.
  */
 @Composable
-fun DebugSeedToolbar(db: AppDatabase) = Unit
+fun DebugSeedToolbar(db: AppDatabase, onReset: () -> Unit = {}) = Unit

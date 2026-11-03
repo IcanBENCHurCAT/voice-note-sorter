@@ -90,7 +90,14 @@ class MainActivity : ComponentActivity() {
                     }
                 ) { padding ->
                     Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-                        DebugSeedToolbar(db = db)
+                        DebugSeedToolbar(
+                            db = db,
+                            onReset = {
+                                while (backStack.size > 1) {
+                                    backStack.removeLastOrNull()
+                                }
+                            }
+                        )
                         Box(modifier = Modifier.fillMaxSize()) {
                             NavDisplay(
                                 backStack = backStack,
@@ -134,6 +141,11 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             )
                                         } else {
+                                            LaunchedEffect(key.noteId) {
+                                                if (backStack.lastOrNull() == key) {
+                                                    backStack.removeLastOrNull()
+                                                }
+                                            }
                                             Text("Note not found")
                                         }
                                     }
