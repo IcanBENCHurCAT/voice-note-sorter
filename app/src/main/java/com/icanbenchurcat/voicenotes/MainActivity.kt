@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -33,6 +35,7 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.data.ActionItem
+import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDeletionCoordinator
@@ -40,6 +43,7 @@ import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.debug.DebugSeedToolbar
 import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
 import com.icanbenchurcat.voicenotes.ui.NotesListScreen
+import com.icanbenchurcat.voicenotes.ui.TasksScreen
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -48,10 +52,17 @@ import kotlinx.serialization.Serializable
 data object NotesListKey : NavKey
 
 @Serializable
+data object TasksKey : NavKey
+
+@Serializable
 data class NoteDetailKey(val noteId: Long) : NavKey
 
-class NotesViewModel(private val notesFlow: Flow<List<Note>>) : ViewModel() {
+class NotesViewModel(
+    notesFlow: Flow<List<Note>>,
+    tasksFlow: Flow<List<ActionItemWithNote>>
+) : ViewModel() {
     val notes: Flow<List<Note>> = notesFlow
+    val tasks: Flow<List<ActionItemWithNote>> = tasksFlow
 }
 
 class MainActivity : ComponentActivity() {
@@ -67,10 +78,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 val backStack = rememberNavBackStack(NotesListKey)
-                val vm = remember { NotesViewModel(dao.observeAll()) }
+                val vm = remember { NotesViewModel(dao.observeAll(), dao.observeAllActions()) }
                 val notes by vm.notes.collectAsState(initial = emptyList())
+                val tasks by vm.tasks.collectAsState(initial = emptyList())
                 var deviceTier by remember { mutableStateOf<Tier?>(null) }
                 var transcriberStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
+                val scope = rememberCoroutineScope()
 
                 LaunchedEffect(Unit) {
                     transcriberStatus = capabilityProbe.transcriberStatus()
@@ -104,6 +117,48 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         )
+
+                        // Top tab navigation for root destinations
+                        val currentDestination = backStack.lastOrNull()
+                        val isRootTab = currentDestination is NotesListKey || currentDestination is TasksKey
+                        if (isRootTab) {
+                            val selectedTabIndex = if (currentDestination is TasksKey) 1 else 0
+                            PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
+                                Tab(
+                                    selected = selectedTabIndex == 0,
+                                    onClick = {
+                                        if (currentDestination !is NotesListKey) {
+                                            while (backStack.isNotEmpty()) {
+                                                backStack.removeLastOrNull()
+                                            }
+                                            backStack.add(NotesListKey)
+                                        }
+                                    },
+                                    text = { Text(stringResource(R.string.tab_notes)) }
+                                )
+                                Tab(
+                                    selected = selectedTabIndex == 1,
+                                    onClick = {
+                                        if (currentDestination !is TasksKey) {
+                                            while (backStack.isNotEmpty()) {
+                                                backStack.removeLastOrNull()
+                                            }
+                                            backStack.add(TasksKey)
+                                        }
+                                    },
+                                    text = {
+                                        val pendingCount = tasks.count { !it.done }
+                                        val label = if (pendingCount > 0) {
+                                            "${stringResource(R.string.tab_tasks)} ($pendingCount)"
+                                        } else {
+                                            stringResource(R.string.tab_tasks)
+                                        }
+                                        Text(label)
+                                    }
+                                )
+                            }
+                        }
+
                         Box(modifier = Modifier.fillMaxSize()) {
                             NavDisplay(
                                 backStack = backStack,
@@ -117,10 +172,22 @@ class MainActivity : ComponentActivity() {
                                             backStack.add(NoteDetailKey(note.id))
                                         }
                                     }
+                                    entry<TasksKey> {
+                                        TasksScreen(
+                                            tasks = tasks,
+                                            onToggleDone = { id, done ->
+                                                scope.launch {
+                                                    dao.updateActionDone(id, done)
+                                                }
+                                            },
+                                            onOpenNote = { noteId ->
+                                                backStack.add(NoteDetailKey(noteId))
+                                            }
+                                        )
+                                    }
                                     entry<NoteDetailKey> { key ->
                                         val note = notes.firstOrNull { it.id == key.noteId }
                                         if (note != null) {
-                                            val scope = rememberCoroutineScope()
                                             var actions by remember(note.id) {
                                                 mutableStateOf<List<ActionItem>>(emptyList())
                                             }

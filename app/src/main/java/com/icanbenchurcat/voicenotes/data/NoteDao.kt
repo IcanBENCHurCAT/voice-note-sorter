@@ -60,6 +60,20 @@ interface NoteDao {
     @Query("SELECT * FROM action_items WHERE noteId = :noteId ORDER BY id ASC")
     suspend fun actionsFor(noteId: Long): List<ActionItem>
 
+    @Query(
+        """
+        SELECT action_items.id, action_items.noteId, action_items.text, action_items.dueAtEpochMs,
+               action_items.done, COALESCE(notes.title, '') AS noteTitle
+        FROM action_items
+        LEFT JOIN notes ON action_items.noteId = notes.id
+        ORDER BY action_items.done ASC, action_items.id DESC
+        """
+    )
+    fun observeAllActions(): Flow<List<ActionItemWithNote>>
+
+    @Query("UPDATE action_items SET done = :done WHERE id = :id")
+    suspend fun updateActionDone(id: Long, done: Boolean)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBuckets(buckets: List<Bucket>)
 
