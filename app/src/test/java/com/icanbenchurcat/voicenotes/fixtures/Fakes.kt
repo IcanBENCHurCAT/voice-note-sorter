@@ -14,6 +14,7 @@ import com.icanbenchurcat.voicenotes.ai.TitleSummary
 import com.icanbenchurcat.voicenotes.ai.Transcriber
 import com.icanbenchurcat.voicenotes.ai.Transcript
 import com.icanbenchurcat.voicenotes.data.ActionItem
+import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.FtsQuerySanitizer
 import com.icanbenchurcat.voicenotes.data.Note
@@ -169,6 +170,29 @@ class InMemoryFakeNoteDao : NoteDao {
         this.buckets[bucket.kind] = bucket
         _bucketsFlow.value = this.buckets.values.sortedBy { it.kind }
         return 1L
+    }
+
+    override fun observeAllActions(): Flow<List<ActionItemWithNote>> {
+        val result = actions.map { action ->
+            val noteTitle = notes[action.noteId]?.title.orEmpty()
+            ActionItemWithNote(
+                id = action.id,
+                noteId = action.noteId,
+                text = action.text,
+                dueAtEpochMs = action.dueAtEpochMs,
+                done = action.done,
+                noteTitle = noteTitle
+            )
+        }.sortedWith(compareBy<ActionItemWithNote> { it.done }.thenByDescending { it.id })
+        return flowOf(result)
+    }
+
+    override suspend fun updateActionDone(id: Long, done: Boolean) {
+        val index = actions.indexOfFirst { it.id == id }
+        if (index != -1) {
+            val existing = actions[index]
+            actions[index] = existing.copy(done = done)
+        }
     }
 
     override suspend fun insertBuckets(buckets: List<Bucket>) {
