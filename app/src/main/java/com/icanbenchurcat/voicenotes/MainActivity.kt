@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -33,17 +35,24 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.data.ActionItem
+import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.AppDatabase
+import com.icanbenchurcat.voicenotes.data.Bucket
+import com.icanbenchurcat.voicenotes.data.BucketManager
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDeletionCoordinator
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.debug.DebugSeedToolbar
+import com.icanbenchurcat.voicenotes.ui.BucketManagementDialog
 import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
 import com.icanbenchurcat.voicenotes.ui.NoteShareHelper
 import com.icanbenchurcat.voicenotes.ui.NotesListScreen
 import androidx.lifecycle.viewModelScope
 import com.icanbenchurcat.voicenotes.data.FtsQuerySanitizer
 import com.icanbenchurcat.voicenotes.data.NoteDao
+import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
+import com.icanbenchurcat.voicenotes.ui.NotesListScreen
+import com.icanbenchurcat.voicenotes.ui.TasksScreen
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,6 +67,9 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data object NotesListKey : NavKey
+
+@Serializable
+data object TasksKey : NavKey
 
 @Serializable
 data class NoteDetailKey(val noteId: Long) : NavKey
@@ -79,6 +91,8 @@ class NotesViewModel(private val dao: NoteDao) : ViewModel() {
             }
         }
 
+    val tasks: Flow<List<ActionItemWithNote>> = dao.observeAllActions()
+
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
     }
@@ -99,12 +113,38 @@ class MainActivity : ComponentActivity() {
                 val backStack = rememberNavBackStack(NotesListKey)
                 val vm = remember { NotesViewModel(dao) }
                 val notes by vm.notes.collectAsState(initial = emptyList())
+                val buckets by dao.observeAllBuckets().collectAsState(initial = emptyList())
+                val bucketManager = remember { BucketManager(dao) }
+                var showBucketManagementDialog by remember { mutableStateOf(false) }
+                val tasks by vm.tasks.collectAsState(initial = emptyList())
                 var deviceTier by remember { mutableStateOf<Tier?>(null) }
                 var transcriberStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
+                val scope = rememberCoroutineScope()
 
                 LaunchedEffect(Unit) {
                     transcriberStatus = capabilityProbe.transcriberStatus()
                     deviceTier = capabilityProbe.resolveDeviceTier()
+                }
+
+                if (showBucketManagementDialog) {
+                    BucketManagementDialog(
+                        buckets = buckets,
+                        onDismissRequest = { showBucketManagementDialog = false },
+                        onRenameBucket = { kind, newName ->
+                            scope.launch {
+                                bucketManager.renameBucket(kind, newName)
+                            }
+                        },
+                        onAddBucket = { kind, name ->
+                            scope.launch {
+                                try {
+                                    bucketManager.addCustomBucket(kind, name)
+                                } catch (e: Exception) {
+                                    // Logged / prevented by validation
+                                }
+                            }
+                        }
+                    )
                 }
 
                 Scaffold(
@@ -134,6 +174,48 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         )
+
+                        // Top tab navigation for root destinations
+                        val currentDestination = backStack.lastOrNull()
+                        val isRootTab = currentDestination is NotesListKey || currentDestination is TasksKey
+                        if (isRootTab) {
+                            val selectedTabIndex = if (currentDestination is TasksKey) 1 else 0
+                            PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
+                                Tab(
+                                    selected = selectedTabIndex == 0,
+                                    onClick = {
+                                        if (currentDestination !is NotesListKey) {
+                                            while (backStack.isNotEmpty()) {
+                                                backStack.removeLastOrNull()
+                                            }
+                                            backStack.add(NotesListKey)
+                                        }
+                                    },
+                                    text = { Text(stringResource(R.string.tab_notes)) }
+                                )
+                                Tab(
+                                    selected = selectedTabIndex == 1,
+                                    onClick = {
+                                        if (currentDestination !is TasksKey) {
+                                            while (backStack.isNotEmpty()) {
+                                                backStack.removeLastOrNull()
+                                            }
+                                            backStack.add(TasksKey)
+                                        }
+                                    },
+                                    text = {
+                                        val pendingCount = tasks.count { !it.done }
+                                        val label = if (pendingCount > 0) {
+                                            "${stringResource(R.string.tab_tasks)} ($pendingCount)"
+                                        } else {
+                                            stringResource(R.string.tab_tasks)
+                                        }
+                                        Text(label)
+                                    }
+                                )
+                            }
+                        }
+
                         Box(modifier = Modifier.fillMaxSize()) {
                             NavDisplay(
                                 backStack = backStack,
@@ -145,15 +227,28 @@ class MainActivity : ComponentActivity() {
                                             notes = notes,
                                             searchQuery = searchQuery,
                                             onSearchQueryChange = vm::onSearchQueryChange,
-                                            deviceTier = deviceTier
+                                            deviceTier = deviceTier,
+                                            onManageBuckets = { showBucketManagementDialog = true }
                                         ) { note ->
                                             backStack.add(NoteDetailKey(note.id))
                                         }
                                     }
+                                    entry<TasksKey> {
+                                        TasksScreen(
+                                            tasks = tasks,
+                                            onToggleDone = { id, done ->
+                                                scope.launch {
+                                                    dao.updateActionDone(id, done)
+                                                }
+                                            },
+                                            onOpenNote = { noteId ->
+                                                backStack.add(NoteDetailKey(noteId))
+                                            }
+                                        )
+                                    }
                                     entry<NoteDetailKey> { key ->
                                         val note = notes.firstOrNull { it.id == key.noteId }
                                         if (note != null) {
-                                            val scope = rememberCoroutineScope()
                                             var actions by remember(note.id) {
                                                 mutableStateOf<List<ActionItem>>(emptyList())
                                             }
@@ -174,6 +269,7 @@ class MainActivity : ComponentActivity() {
                                                 tags = tags,
                                                 transcriberStatus = transcriberStatus,
                                                 hasAudioFile = hasAudio,
+                                                buckets = buckets,
                                                 onConfirmOrChangeBucket = { bucketKind ->
                                                     scope.launch {
                                                         dao.confirmOrChangeBucket(
@@ -216,7 +312,8 @@ class MainActivity : ComponentActivity() {
                                                     if (chooser != null) {
                                                         context.startActivity(chooser)
                                                     }
-                                                }
+                                                },
+                                                onManageBuckets = { showBucketManagementDialog = true }
                                             )
                                         } else {
                                             LaunchedEffect(key.noteId) {
