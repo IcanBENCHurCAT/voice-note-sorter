@@ -20,6 +20,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +47,8 @@ import com.icanbenchurcat.voicenotes.data.NoteStatus
 @Composable
 fun NotesListScreen(
     notes: List<Note>,
+    searchQuery: String = "",
+    onSearchQueryChange: (String) -> Unit = {},
     deviceTier: Tier? = null,
     onOpen: (Note) -> Unit
 ) {
@@ -56,6 +60,9 @@ fun NotesListScreen(
         notes
     }
 
+    val isSearching = searchQuery.isNotBlank()
+    val isLibraryEmpty = notes.isEmpty() && !isSearching
+
     Column(modifier = Modifier.fillMaxSize()) {
         if (deviceTier != null) {
             Text(
@@ -64,7 +71,7 @@ fun NotesListScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
         }
-        if (notes.isEmpty()) {
+        if (isLibraryEmpty) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 contentAlignment = Alignment.Center
@@ -76,6 +83,30 @@ fun NotesListScreen(
             }
             return
         }
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchQueryChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .semantics { contentDescription = "Search notes" },
+            placeholder = { Text(stringResource(R.string.search_hint)) },
+            singleLine = true,
+            trailingIcon = {
+                if (isSearching) {
+                    TextButton(
+                        onClick = { onSearchQueryChange("") },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Clear search"
+                        }
+                    ) {
+                        Text("✕")
+                    }
+                }
+            }
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -95,13 +126,18 @@ fun NotesListScreen(
                 modifier = Modifier.semantics { contentDescription = "Filter Needs Review notes" }
             )
         }
+
         if (displayedNotes.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "No notes need review.",
+                    text = if (isSearching) {
+                        stringResource(R.string.search_no_matches)
+                    } else {
+                        "No notes need review."
+                    },
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
