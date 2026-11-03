@@ -17,7 +17,6 @@ import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
-import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
 import kotlinx.coroutines.flow.Flow
@@ -93,14 +92,12 @@ class InMemoryFakeNoteDao : NoteDao {
     private val actions = mutableListOf<ActionItem>()
     private val buckets = mutableMapOf<String, Bucket>()
     private val tags = mutableSetOf<String>()
-    private val noteTags = mutableListOf<NoteTag>()
+    private val noteTags = mutableSetOf<NoteTag>()
 
     override suspend fun insert(note: Note): Long {
-        val assignedId = if (note.id == 0L) nextNoteId++ else note.id
-        val copy = note.copy(id = assignedId)
-        notes[assignedId] = copy
-        updateSnapshots += copy
-        return assignedId
+        val id = if (note.id == 0L) nextNoteId++ else note.id
+        notes[id] = note.copy(id = id)
+        return id
     }
 
     override suspend fun update(note: Note) {
@@ -117,26 +114,18 @@ class InMemoryFakeNoteDao : NoteDao {
         flowOf(notes.values.filter { it.status == status })
 
     override suspend fun confirmOrChangeBucket(noteId: Long, bucketKind: String, status: String) {
-        val note = notes[noteId] ?: return
-        val updated = note.copy(bucketKind = bucketKind, status = status)
-        notes[noteId] = updated
-        updateSnapshots += updated
+        val existing = notes[noteId] ?: return
+        notes[noteId] = existing.copy(bucketKind = bucketKind, status = status)
     }
 
     override suspend fun byId(id: Long): Note? = notes[id]
 
-    override fun search(query: String): Flow<List<Note>> = flowOf(
-        notes.values.filter {
-            it.title.contains(query, ignoreCase = true) ||
-                it.transcript.contains(query, ignoreCase = true) ||
-                it.summary.contains(query, ignoreCase = true)
-        }
-    )
+    override fun search(query: String): Flow<List<Note>> = flowOf(emptyList())
 
     override suspend fun insertActions(items: List<ActionItem>) {
-        for (item in items) {
-            val assignedId = if (item.id == 0L) nextActionId++ else item.id
-            actions.add(item.copy(id = assignedId))
+        items.forEach { item ->
+            val id = if (item.id == 0L) nextActionId++ else item.id
+            actions += item.copy(id = id)
         }
     }
 
@@ -145,32 +134,26 @@ class InMemoryFakeNoteDao : NoteDao {
     }
 
     override suspend fun actionsFor(noteId: Long): List<ActionItem> =
-        actions.filter { it.noteId == noteId }
+        actions.filter { it.noteId == noteId }.sortedBy { it.id }
 
     override suspend fun insertBuckets(buckets: List<Bucket>) {
-        for (bucket in buckets) {
-            this.buckets[bucket.kind] = bucket
-        }
+        buckets.forEach { this.buckets[it.kind] = it }
     }
 
-    override suspend fun allBuckets(): List<Bucket> = buckets.values.toList()
+    override suspend fun allBuckets(): List<Bucket> =
+        buckets.values.sortedBy { it.kind }
 
     override suspend fun bucketByKind(kind: String): Bucket? = buckets[kind]
 
     override suspend fun insertTags(tags: List<Tag>) {
-        for (tag in tags) {
-            this.tags += tag.name
-        }
+        tags.forEach { this.tags += it.name }
     }
 
-    override suspend fun allTags(): List<Tag> = tags.map { Tag(it) }
+    override suspend fun allTags(): List<Tag> =
+        tags.sorted().map { Tag(it) }
 
     override suspend fun insertNoteTags(noteTags: List<NoteTag>) {
-        for (noteTag in noteTags) {
-            if (this.noteTags.none { it.noteId == noteTag.noteId && it.tagName == noteTag.tagName }) {
-                this.noteTags.add(noteTag)
-            }
-        }
+        this.noteTags.addAll(noteTags)
     }
 
     override suspend fun deleteNoteTagsForNote(noteId: Long) {
@@ -178,10 +161,10 @@ class InMemoryFakeNoteDao : NoteDao {
     }
 
     override suspend fun tagsFor(noteId: Long): List<String> =
-        noteTags.filter { it.noteId == noteId }.map { it.tagName }
+        noteTags.filter { it.noteId == noteId }.map { it.tagName }.sorted()
 
     override fun observeByTag(tagName: String): Flow<List<Note>> {
-        val noteIds = noteTags.filter { it.tagName == tagName }.map { it.noteId }.toSet()
-        return flowOf(notes.values.filter { it.id in noteIds })
+        val matchingIds = noteTags.filter { it.tagName == tagName }.map { it.noteId }.toSet()
+        return flowOf(notes.values.filter { it.id in matchingIds })
     }
 }
