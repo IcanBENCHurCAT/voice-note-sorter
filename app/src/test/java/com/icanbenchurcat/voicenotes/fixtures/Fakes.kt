@@ -16,6 +16,7 @@ import com.icanbenchurcat.voicenotes.ai.Transcript
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.Bucket
+import com.icanbenchurcat.voicenotes.data.FtsQuerySanitizer
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
 import com.icanbenchurcat.voicenotes.data.NoteTag
@@ -133,13 +134,15 @@ class InMemoryFakeNoteDao : NoteDao {
     override suspend fun byId(id: Long): Note? = notes[id]
 
     override fun search(query: String): Flow<List<Note>> {
-        val q = query.lowercase().trim()
-        val matching = notes.values.filter { note ->
-            note.title.lowercase().contains(q) ||
-                note.transcript.lowercase().contains(q) ||
-                note.summary.lowercase().contains(q)
-        }
-        return flowOf(matching)
+        val sanitized = FtsQuerySanitizer.sanitize(query) ?: return flowOf(emptyList())
+        val searchTerms = sanitized.split(" ")
+            .map { it.removeSuffix("*").lowercase() }
+            .filter { it.isNotBlank() }
+        val matches = notes.values.filter { note ->
+            val corpus = "${note.title} ${note.summary} ${note.transcript}".lowercase()
+            searchTerms.all { term -> corpus.contains(term) }
+        }.sortedByDescending { it.createdAtEpochMs }
+        return flowOf(matches)
     }
 
     override suspend fun insertActions(items: List<ActionItem>) {
