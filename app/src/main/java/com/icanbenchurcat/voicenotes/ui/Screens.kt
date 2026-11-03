@@ -24,6 +24,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LinearProgressIndicator
+import com.icanbenchurcat.voicenotes.audio.AudioPlaybackState
+import com.icanbenchurcat.voicenotes.audio.PlaybackStatus
+import com.icanbenchurcat.voicenotes.audio.rememberAudioPlayerState
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -195,6 +201,84 @@ fun NotesListScreen(
     }
 }
 
+@Composable
+fun AudioPlaybackControl(
+    audioPlaybackState: AudioPlaybackState,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.audio_playback_title),
+                style = MaterialTheme.typography.titleSmall
+            )
+
+            if (!audioPlaybackState.isFileAvailable || audioPlaybackState.errorMessage != null) {
+                Text(
+                    text = audioPlaybackState.errorMessage ?: stringResource(R.string.audio_missing_error),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val isPlaying = audioPlaybackState.status == PlaybackStatus.PLAYING
+                    val playPauseDesc = if (isPlaying) {
+                        stringResource(R.string.cd_pause_audio)
+                    } else {
+                        stringResource(R.string.cd_play_audio)
+                    }
+
+                    FilledTonalButton(
+                        onClick = { audioPlaybackState.togglePlayPause() },
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .semantics { contentDescription = playPauseDesc }
+                    ) {
+                        Text(if (isPlaying) "Pause" else "Play")
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        LinearProgressIndicator(
+                            progress = { audioPlaybackState.progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = audioPlaybackState.elapsedFormatted,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                text = audioPlaybackState.durationFormatted,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NoteDetailScreen(
@@ -204,7 +288,8 @@ fun NoteDetailScreen(
     transcriberStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     availableBuckets: List<String> = DefaultBucketProfileProvider.profile().buckets.map { it.kind },
     onConfirmOrChangeBucket: (String) -> Unit = {},
-    onDeleteNote: () -> Unit = {}
+    onDeleteNote: () -> Unit = {},
+    audioPlaybackState: AudioPlaybackState = rememberAudioPlayerState(note.audioPath)
 ) {
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
@@ -349,6 +434,11 @@ fun NoteDetailScreen(
                 )
             }
         }
+        AudioPlaybackControl(
+            audioPlaybackState = audioPlaybackState,
+            modifier = Modifier.padding(top = 16.dp)
+        )
+
         if (note.stageStatus.isNotBlank()) {
             val pipelineDesc = stringResource(R.string.cd_note_pipeline, note.stageStatus)
             Text(

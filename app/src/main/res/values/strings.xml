@@ -18,4 +18,8 @@
     <string name="dialog_delete_note_message">This permanently deletes the note, its transcript, action items, tags, search index entries, and recorded audio.</string>
     <string name="dialog_delete_confirm">Delete</string>
     <string name="dialog_cancel">Cancel</string>
+    <string name="audio_missing_error">Audio recording not available on device</string>
+    <string name="cd_play_audio">Play original audio</string>
+    <string name="cd_pause_audio">Pause audio</string>
+    <string name="audio_playback_title">Original audio</string>
 </resources>
