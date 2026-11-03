@@ -23,6 +23,9 @@ interface NoteDao {
     @Query("SELECT audioPath FROM notes")
     suspend fun allAudioPaths(): List<String>
 
+    @Query("UPDATE notes SET title = :title, transcript = :transcript WHERE id = :noteId")
+    suspend fun updateTitleAndTranscript(noteId: Long, title: String, transcript: String)
+
     @Query("SELECT * FROM notes ORDER BY createdAtEpochMs DESC")
     fun observeAll(): Flow<List<Note>>
 
@@ -60,14 +63,37 @@ interface NoteDao {
     @Query("SELECT * FROM action_items WHERE noteId = :noteId ORDER BY id ASC")
     suspend fun actionsFor(noteId: Long): List<ActionItem>
 
+    @Query(
+        """
+        SELECT action_items.id, action_items.noteId, action_items.text, action_items.dueAtEpochMs,
+               action_items.done, COALESCE(notes.title, '') AS noteTitle
+        FROM action_items
+        LEFT JOIN notes ON action_items.noteId = notes.id
+        ORDER BY action_items.done ASC, action_items.id DESC
+        """
+    )
+    fun observeAllActions(): Flow<List<ActionItemWithNote>>
+
+    @Query("UPDATE action_items SET done = :done WHERE id = :id")
+    suspend fun updateActionDone(id: Long, done: Boolean)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBucket(bucket: Bucket): Long
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBuckets(buckets: List<Bucket>)
+
+    @Query("SELECT * FROM buckets ORDER BY kind ASC")
+    fun observeAllBuckets(): Flow<List<Bucket>>
 
     @Query("SELECT * FROM buckets ORDER BY kind ASC")
     suspend fun allBuckets(): List<Bucket>
 
     @Query("SELECT * FROM buckets WHERE kind = :kind LIMIT 1")
     suspend fun bucketByKind(kind: String): Bucket?
+
+    @Query("UPDATE buckets SET name = :newName WHERE kind = :kind")
+    suspend fun renameBucket(kind: String, newName: String)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTags(tags: List<Tag>)

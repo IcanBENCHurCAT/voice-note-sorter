@@ -31,6 +31,22 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext, AppDatabase::class.java, "voice-notes.db"
             )
                 .addMigrations(MIGRATION_1_2)
+                .addCallback(object : Callback() {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        super.onCreate(db)
+                        // Seed default buckets on database creation
+                        val defaultBuckets = listOf(
+                            "IDEA" to "Ideas",
+                            "TASK" to "Tasks",
+                            "LIST" to "Lists",
+                            "NOTE" to "Notes",
+                            "INBOX" to "Inbox"
+                        )
+                        for ((kind, name) in defaultBuckets) {
+                            db.execSQL("INSERT OR IGNORE INTO buckets (kind, name) VALUES ('$kind', '$name')")
+                        }
+                    }
+                })
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
                 .also { instance = it }

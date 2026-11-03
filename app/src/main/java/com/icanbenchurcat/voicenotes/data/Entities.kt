@@ -48,6 +48,18 @@ data class ActionItem(
     val done: Boolean = false
 )
 
+/**
+ * Action item joined with its parent note title for cross-note display.
+ */
+data class ActionItemWithNote(
+    val id: Long,
+    val noteId: Long,
+    val text: String,
+    val dueAtEpochMs: Long? = null,
+    val done: Boolean = false,
+    val noteTitle: String = ""
+)
+
 @Entity(tableName = "tags")
 data class Tag(@PrimaryKey val name: String)
 
