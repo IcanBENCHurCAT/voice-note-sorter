@@ -124,21 +124,17 @@ fun NotesListScreen(
                     selected = !filterNeedsReviewOnly,
                     onClick = { filterNeedsReviewOnly = false },
                     label = { Text("All (${notes.size})") },
-                    modifier = Modifier.semantics {
-                        contentDescription = "Show all notes"
-                    }
+                    modifier = Modifier.semantics { contentDescription = "Filter all notes" }
                 )
                 FilterChip(
                     selected = filterNeedsReviewOnly,
-                    onClick = { filterNeedsReviewOnly = true },
+                    onClick = { filterNeedsReviewOnly = !filterNeedsReviewOnly },
                     label = { Text("Needs review ($needsReviewCount)") },
-                    modifier = Modifier.semantics {
-                        contentDescription = "Show notes needing review"
-                    }
+                    modifier = Modifier.semantics { contentDescription = "Filter Needs Review notes" }
                 )
             }
             if (onManageBuckets != null) {
-                TextButton(
+                OutlinedButton(
                     onClick = onManageBuckets,
                     modifier = Modifier.semantics { contentDescription = "Manage buckets" }
                 ) {
@@ -149,9 +145,7 @@ fun NotesListScreen(
 
         if (displayedNotes.isEmpty()) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -160,72 +154,54 @@ fun NotesListScreen(
                     } else {
                         "No notes need review."
                     },
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyLarge
                 )
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(displayedNotes, key = { it.id }) { note ->
-                    NoteCard(note = note, onClick = { onOpen(note) })
-                }
-            }
+            return
         }
-    }
-}
-
-@Composable
-fun NoteCard(note: Note, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .semantics {
-                contentDescription = "Voice note: ${note.title.ifBlank { "Untitled" }}"
-            }
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = note.title.ifBlank { "Untitled note" },
-                style = MaterialTheme.typography.titleMedium
-            )
-            val snippet = note.summary.ifBlank { note.transcript }
-            if (snippet.isNotBlank()) {
-                Text(
-                    text = snippet,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp),
-                    maxLines = 2
-                )
-            }
-            Row(
-                modifier = Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val metaDesc = stringResource(
-                    R.string.cd_note_meta,
-                    note.bucketKind,
-                    note.tierUsed
-                )
-                Text(
-                    text = "${note.bucketKind} · ${note.tierUsed}",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.semantics { contentDescription = metaDesc }
-                )
-                if (note.status == NoteStatus.NEEDS_REVIEW.name) {
-                    Text(
-                        text = "Needs review",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Status: needs review"
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(displayedNotes, key = { it.id }) { note ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clickable { onOpen(note) }
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = note.title.ifBlank { "Untitled note" },
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        if (note.summary.isNotBlank()) {
+                            Text(
+                                text = note.summary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 2
+                            )
                         }
-                    )
+                        val metaDesc = stringResource(R.string.cd_note_meta, note.bucketKind, note.tierUsed)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${note.bucketKind} · ${note.tierUsed}",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.semantics { contentDescription = metaDesc }
+                            )
+                            if (note.status == NoteStatus.NEEDS_REVIEW.name) {
+                                Text(
+                                    text = "Needs review",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.semantics {
+                                        contentDescription = "Needs review badge"
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -432,7 +408,6 @@ fun NoteDetailScreen(
                     Text("Confirm filing (${note.bucketKind})")
                 }
             }
-
             val effectiveBuckets = remember(availableBuckets, buckets) {
                 if (buckets.isNotEmpty()) {
                     buckets.map { it.kind to it.name }
