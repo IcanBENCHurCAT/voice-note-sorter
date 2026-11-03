@@ -68,6 +68,18 @@ fun NotesListScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
         }
+        if (notes.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No voice notes yet. Tap Record to capture a thought.",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+            return
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
