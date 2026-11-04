@@ -51,10 +51,11 @@ class DebugSeedInstrumentedTest {
         composeRule.onNodeWithText("No voice notes yet. Tap Record to capture a thought.")
             .assertIsDisplayed()
 
-        // 1. Tap 'Seed sample data' button
+        // 1. Tap 'Seed sample data' via Developer options overflow menu
+        composeRule.onNodeWithContentDescription("Developer options").performClick()
         composeRule.onNodeWithContentDescription("Seed sample data").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Renovation follow-ups for today")
+            composeRule.onAllNodesWithText("Kitchen electrical work")
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -77,27 +78,29 @@ class DebugSeedInstrumentedTest {
         }
 
         // 3. Open the TASK note detail screen and verify tags & action items render
-        composeRule.onNodeWithText("Renovation follow-ups for today").assertIsDisplayed()
-        composeRule.onNodeWithText("Renovation follow-ups for today").performClick()
+        composeRule.onNodeWithText("Kitchen electrical work").assertIsDisplayed()
+        composeRule.onNodeWithText("Kitchen electrical work").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Call the electrician before noon")
+            composeRule.onAllNodesWithText("Call electrician about kitchen wiring")
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
         composeRule.onNodeWithText("#errands").assertIsDisplayed()
         composeRule.onNodeWithText("#renovation").assertIsDisplayed()
-        composeRule.onNodeWithText("Call the electrician before noon").assertIsDisplayed()
-        composeRule.onNodeWithText("Send the updated floor plan PDF to Dana").assertIsDisplayed()
+        composeRule.onNodeWithText("Call electrician about kitchen wiring").assertIsDisplayed()
+        composeRule.onNodeWithText("Pick up 14-gauge copper wire from Home Depot").assertIsDisplayed()
 
         // 4. Clear data and re-seed without reinstalling
+        composeRule.onNodeWithContentDescription("Developer options").performClick()
         composeRule.onNodeWithContentDescription("Clear seed data").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
             runBlocking { dao.observeAll().first().isEmpty() }
         }
 
+        composeRule.onNodeWithContentDescription("Developer options").performClick()
         composeRule.onNodeWithContentDescription("Seed sample data").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            runBlocking { dao.observeAll().first().size == 5 }
+            runBlocking { dao.observeAll().first().size == 6 }
         }
     }
 }
