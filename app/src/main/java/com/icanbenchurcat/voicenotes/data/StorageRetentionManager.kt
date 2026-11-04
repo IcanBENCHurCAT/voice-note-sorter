@@ -144,16 +144,26 @@ class StorageRetentionManager(
         val PREF_AUTO_DELETE_OLD_AUDIO = booleanPreferencesKey("auto_delete_old_audio_90_days")
         const val NINETY_DAYS_MS = 90L * 24 * 60 * 60 * 1000L // 7,776,000,000 ms
 
+        @Volatile
+        private var defaultDataStore: DataStore<Preferences>? = null
+
+        private fun getOrCreateDataStore(context: Context): DataStore<Preferences> {
+            return defaultDataStore ?: synchronized(this) {
+                defaultDataStore ?: PreferenceDataStoreFactory.create(
+                    produceFile = { context.applicationContext.preferencesDataStoreFile("storage_retention_prefs") }
+                ).also { defaultDataStore = it }
+            }
+        }
+
         fun fromContext(
             context: Context,
             dataStore: DataStore<Preferences>? = null
         ): StorageRetentionManager {
-            val db = AppDatabase.get(context)
-            val audioDir = context.filesDir
-            val dbFile = context.getDatabasePath("voice-notes.db")
-            val actualDataStore = dataStore ?: PreferenceDataStoreFactory.create(
-                produceFile = { context.preferencesDataStoreFile("storage_retention_prefs") }
-            )
+            val appContext = context.applicationContext
+            val db = AppDatabase.get(appContext)
+            val audioDir = appContext.filesDir
+            val dbFile = appContext.getDatabasePath("voice-notes.db")
+            val actualDataStore = dataStore ?: getOrCreateDataStore(appContext)
             return StorageRetentionManager(
                 dao = db.noteDao(),
                 audioDir = audioDir,

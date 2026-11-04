@@ -3,6 +3,7 @@
 package com.icanbenchurcat.voicenotes.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -11,7 +12,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.compose.ui.test.performScrollTo
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.data.StorageStats
@@ -136,26 +136,20 @@ class SettingsScreenTest {
         }
 
         // Section header and metrics
-        composeTestRule.onNodeWithText("Storage & Data")
-            .performScrollTo()
-            .assertIsDisplayed()
-        composeTestRule.onNodeWithText("Audio recordings")
-            .performScrollTo()
-            .assertIsDisplayed()
-        composeTestRule.onNodeWithText("15.0 MB")
-            .performScrollTo()
-            .assertIsDisplayed()
+        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Storage & Data"))
+        composeTestRule.onNodeWithText("Storage & Data").assertIsDisplayed()
 
-        composeTestRule.onNodeWithText("Database")
-            .performScrollTo()
-            .assertIsDisplayed()
-        composeTestRule.onNodeWithText("120.0 KB (8 voice notes)")
-            .performScrollTo()
-            .assertIsDisplayed()
+        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Audio recordings"))
+        composeTestRule.onNodeWithText("Audio recordings").assertIsDisplayed()
+        composeTestRule.onNodeWithText("15.0 MB").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Database"))
+        composeTestRule.onNodeWithText("Database").assertIsDisplayed()
+        composeTestRule.onNodeWithText("120.0 KB (8 voice notes)").assertIsDisplayed()
 
         // Toggle exists and triggers confirmation dialog before enabling
+        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasContentDescription("Toggle auto-delete audio older than 90 days"))
         val switchNode = composeTestRule.onNodeWithContentDescription("Toggle auto-delete audio older than 90 days")
-            .performScrollTo()
         switchNode.assertIsDisplayed()
         switchNode.performClick()
 
