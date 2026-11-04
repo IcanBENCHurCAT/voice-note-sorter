@@ -2,7 +2,9 @@
 
 package com.icanbenchurcat.voicenotes
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -42,8 +44,11 @@ class CaptureStackIntegrationTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val instrumentation = InstrumentationRegistry.getInstrumentation()
 
-        // Grant RECORD_AUDIO permission via UIAutomation / shell
-        instrumentation.uiAutomation.executeShellCommand("pm grant com.icanbenchurcat.voicenotes android.permission.RECORD_AUDIO")
+        // Grant RECORD_AUDIO and POST_NOTIFICATIONS permissions synchronously via UiAutomation
+        instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         // Assert Record FAB is displayed
         composeRule.onNodeWithContentDescription("Record a note").assertIsDisplayed()
