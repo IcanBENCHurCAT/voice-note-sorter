@@ -44,6 +44,8 @@ import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
 import com.icanbenchurcat.voicenotes.data.NoteDeletionCoordinator
 import com.icanbenchurcat.voicenotes.data.NoteStatus
+import com.icanbenchurcat.voicenotes.data.NoteTag
+import com.icanbenchurcat.voicenotes.data.Tag
 import com.icanbenchurcat.voicenotes.debug.DebugSeedToolbar
 import com.icanbenchurcat.voicenotes.ui.BucketManagementDialog
 import com.icanbenchurcat.voicenotes.ui.CapabilitySettingsUiState
@@ -93,6 +95,8 @@ class NotesViewModel(private val dao: NoteDao) : ViewModel() {
         }
 
     val tasks: Flow<List<ActionItemWithNote>> = dao.observeAllActions()
+    val allTags: Flow<List<Tag>> = dao.observeAllTags()
+    val allNoteTags: Flow<List<NoteTag>> = dao.observeAllNoteTags()
 
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
@@ -118,6 +122,8 @@ class MainActivity : ComponentActivity() {
                 val bucketManager = remember { BucketManager(dao) }
                 var showBucketManagementDialog by remember { mutableStateOf(false) }
                 val tasks by vm.tasks.collectAsState(initial = emptyList())
+                val allTags by vm.allTags.collectAsState(initial = emptyList())
+                val allNoteTags by vm.allNoteTags.collectAsState(initial = emptyList())
                 var deviceTier by remember { mutableStateOf<Tier?>(null) }
                 var transcriberStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
                 var summarizerStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
@@ -242,6 +248,10 @@ class MainActivity : ComponentActivity() {
                                             searchQuery = searchQuery,
                                             onSearchQueryChange = vm::onSearchQueryChange,
                                             deviceTier = deviceTier,
+                                            buckets = buckets,
+                                            tasks = tasks,
+                                            tags = allTags.map { it.name },
+                                            noteTags = allNoteTags,
                                             onManageBuckets = { showBucketManagementDialog = true },
                                             onOpenSettings = { backStack.add(SettingsKey) }
                                         ) { note ->

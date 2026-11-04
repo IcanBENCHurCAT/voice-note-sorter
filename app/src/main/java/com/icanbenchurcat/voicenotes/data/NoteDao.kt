@@ -96,7 +96,13 @@ interface NoteDao {
     suspend fun insertTags(tags: List<Tag>)
 
     @Query("SELECT * FROM tags ORDER BY name ASC")
+    fun observeAllTags(): Flow<List<Tag>>
+
+    @Query("SELECT * FROM tags ORDER BY name ASC")
     suspend fun allTags(): List<Tag>
+
+    @Query("SELECT * FROM note_tags")
+    fun observeAllNoteTags(): Flow<List<NoteTag>>
 
     @Query("DELETE FROM tags")
     suspend fun deleteAllTags()
