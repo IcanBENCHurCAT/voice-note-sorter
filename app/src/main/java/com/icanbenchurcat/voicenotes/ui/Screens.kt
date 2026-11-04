@@ -55,6 +55,7 @@ fun NotesListScreen(
     onSearchQueryChange: (String) -> Unit = {},
     deviceTier: Tier? = null,
     onManageBuckets: (() -> Unit)? = null,
+    onOpenSettings: (() -> Unit)? = null,
     onOpen: (Note) -> Unit
 ) {
     var filterNeedsReviewOnly by rememberSaveable { mutableStateOf(false) }
@@ -69,12 +70,33 @@ fun NotesListScreen(
     val isLibraryEmpty = notes.isEmpty() && !isSearching
 
     Column(modifier = Modifier.fillMaxSize()) {
-        if (deviceTier != null) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val tierText = when (deviceTier) {
+                Tier.FULL -> stringResource(R.string.tier_badge_full)
+                Tier.CORE -> stringResource(R.string.tier_badge_core)
+                Tier.MINIMAL, null -> stringResource(R.string.tier_badge_basic)
+            }
             Text(
-                text = "Device capability: $deviceTier",
+                text = "Device capability: $tierText",
                 style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .clickable(enabled = onOpenSettings != null) { onOpenSettings?.invoke() }
             )
+            if (onOpenSettings != null) {
+                TextButton(onClick = onOpenSettings) {
+                    Text(
+                        text = stringResource(R.string.action_settings),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
         }
         if (isLibraryEmpty) {
             Box(
