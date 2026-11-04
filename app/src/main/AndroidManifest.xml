@@ -50,5 +50,10 @@
                 android:resource="@xml/record_widget_info" />
         </receiver>
 
+        <service
+            android:name=".capture.RecordingService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
     </application>
 </manifest>
