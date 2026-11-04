@@ -18,6 +18,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -437,7 +442,7 @@ fun NotesListScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun NoteDetailScreen(
     note: Note,
@@ -446,6 +451,7 @@ fun NoteDetailScreen(
     transcriberStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     availableBuckets: List<String> = DefaultBucketProfileProvider.profile().buckets.map { it.kind },
     buckets: List<Bucket> = emptyList(),
+    onBack: (() -> Unit)? = null,
     onConfirmOrChangeBucket: (String) -> Unit = {},
     onToggleActionDone: ((Long, Boolean) -> Unit)? = null,
     onDeleteNote: () -> Unit = {},
@@ -481,32 +487,47 @@ fun NoteDetailScreen(
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = note.title.ifBlank { "Untitled note" },
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.weight(1f, fill = false)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = note.title.ifBlank { "Untitled note" },
+                        maxLines = 1,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
+                navigationIcon = {
+                    if (onBack != null) {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.semantics { contentDescription = "Navigate back" }
+                        ) {
+                            Text("←", style = MaterialTheme.typography.titleLarge)
+                        }
+                    }
+                },
+                actions = {
+                    OutlinedButton(
+                        onClick = { showDeleteConfirmDialog = true },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 40.dp)
+                            .semantics { contentDescription = "Delete note" }
+                    ) {
+                        Text(stringResource(R.string.action_delete_note))
+                    }
+                }
             )
-            OutlinedButton(
-                onClick = { showDeleteConfirmDialog = true },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier
-                    .defaultMinSize(minHeight = 48.dp)
-                    .semantics { contentDescription = "Delete note" }
-            ) {
-                Text(stringResource(R.string.action_delete_note))
-            }
         }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
         val effectiveBuckets = remember(availableBuckets, buckets) {
             if (buckets.isNotEmpty()) {
                 buckets.map { it.kind to it.name }
@@ -697,4 +718,5 @@ fun NoteDetailScreen(
             }
         }
     }
+}
 }

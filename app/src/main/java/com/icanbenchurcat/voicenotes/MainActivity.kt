@@ -5,13 +5,13 @@ package com.icanbenchurcat.voicenotes
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
@@ -55,6 +55,7 @@ import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
 import com.icanbenchurcat.voicenotes.ui.NotesListScreen
 import com.icanbenchurcat.voicenotes.ui.SettingsScreen
 import com.icanbenchurcat.voicenotes.ui.TasksScreen
+import com.icanbenchurcat.voicenotes.ui.theme.VoiceNoteSorterTheme
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -113,10 +114,11 @@ class MainActivity : ComponentActivity() {
         val dao = db.noteDao()
         val deletionCoordinator = NoteDeletionCoordinator.fromContext(this)
         val capabilityProbe = CapabilityProbe.get(this)
+        enableEdgeToEdge()
         // TODO(capture): EXTRA_START_RECORDING from the QS tile / widget
         // deep-links straight into the recorder once capture lands.
         setContent {
-            MaterialTheme {
+            VoiceNoteSorterTheme {
                 val backStack = rememberNavBackStack(NotesListKey)
                 val vm = remember { NotesViewModel(dao) }
                 val notes by vm.notes.collectAsState(initial = emptyList())
@@ -306,6 +308,11 @@ class MainActivity : ComponentActivity() {
                                                 tags = noteTagsList,
                                                 transcriberStatus = transcriberStatus,
                                                 buckets = buckets,
+                                                onBack = {
+                                                    if (backStack.lastOrNull() == key) {
+                                                        backStack.removeLastOrNull()
+                                                    }
+                                                },
                                                 onConfirmOrChangeBucket = { bucketKind ->
                                                     scope.launch {
                                                         dao.confirmOrChangeBucket(
