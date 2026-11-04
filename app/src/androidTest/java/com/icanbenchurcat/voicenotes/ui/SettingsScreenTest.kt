@@ -3,10 +3,13 @@
 package com.icanbenchurcat.voicenotes.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.compose.ui.test.performScrollTo
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
@@ -49,6 +52,7 @@ class SettingsScreenTest {
         composeTestRule.onNodeWithText("Available").assertIsDisplayed()
 
         composeTestRule.onNodeWithText("Note Summarisation").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Action Item Extraction"))
         composeTestRule.onNodeWithText("Action Item Extraction").assertIsDisplayed()
 
         // Unavailable explanation is shown without upgrade pressure
@@ -100,6 +104,7 @@ class SettingsScreenTest {
         }
 
         composeTestRule.onNodeWithText("Full on-device AI").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Re-check capabilities"))
         composeTestRule.onNodeWithText("Re-check capabilities").performClick()
         assertTrue(refreshed)
     }
