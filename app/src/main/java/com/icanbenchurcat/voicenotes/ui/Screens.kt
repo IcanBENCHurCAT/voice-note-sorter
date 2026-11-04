@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,6 +45,8 @@ import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.ai.Tier
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.SuggestionChip
@@ -295,7 +298,10 @@ fun NotesListScreen(
             }
             return
         }
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 80.dp)
+        ) {
             items(displayedNotes, key = { it.id }) { note ->
                 val deduplicatedSummary = remember(note.title, note.summary) {
                     NoteCardFormatting.deduplicateSummary(note.title, note.summary)
@@ -441,6 +447,7 @@ fun NoteDetailScreen(
     availableBuckets: List<String> = DefaultBucketProfileProvider.profile().buckets.map { it.kind },
     buckets: List<Bucket> = emptyList(),
     onConfirmOrChangeBucket: (String) -> Unit = {},
+    onToggleActionDone: ((Long, Boolean) -> Unit)? = null,
     onDeleteNote: () -> Unit = {},
     onManageBuckets: (() -> Unit)? = null
 ) {
@@ -477,6 +484,7 @@ fun NoteDetailScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
         Row(
@@ -591,15 +599,50 @@ fun NoteDetailScreen(
             Text(
                 text = "Action items",
                 style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
             )
             actions.forEach { item ->
-                val marker = if (item.done) "[x]" else "[ ]"
-                Text(
-                    text = "$marker ${item.text}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .clickable(enabled = onToggleActionDone != null) {
+                            onToggleActionDone?.invoke(item.id, !item.done)
+                        }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = item.done,
+                        onCheckedChange = { done ->
+                            onToggleActionDone?.invoke(item.id, done)
+                        },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Toggle action item: ${item.text}"
+                        }
+                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp)
+                    ) {
+                        Text(
+                            text = item.text,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        if (item.dueAtEpochMs != null && item.dueAtEpochMs > 0L) {
+                            val formattedDue = NoteCardFormatting.formatDueDate(item.dueAtEpochMs)
+                            if (formattedDue.isNotBlank()) {
+                                Text(
+                                    text = "Due: $formattedDue",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
         if (note.stageStatus.isNotBlank()) {

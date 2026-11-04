@@ -163,6 +163,9 @@ class InMemoryFakeNoteDao : NoteDao {
         actions.clear()
     }
 
+    override fun observeActionsFor(noteId: Long): Flow<List<ActionItem>> =
+        flowOf(actions.filter { it.noteId == noteId }.sortedBy { it.id })
+
     override suspend fun actionsFor(noteId: Long): List<ActionItem> =
         actions.filter { it.noteId == noteId }.sortedBy { it.id }
 
@@ -241,6 +244,9 @@ class InMemoryFakeNoteDao : NoteDao {
     override suspend fun deleteAllNoteTags() {
         noteTags.clear()
     }
+
+    override fun observeTagsFor(noteId: Long): Flow<List<String>> =
+        flowOf(noteTags.filter { it.noteId == noteId }.map { it.tagName }.sorted())
 
     override suspend fun tagsFor(noteId: Long): List<String> =
         noteTags.filter { it.noteId == noteId }.map { it.tagName }.sorted()
