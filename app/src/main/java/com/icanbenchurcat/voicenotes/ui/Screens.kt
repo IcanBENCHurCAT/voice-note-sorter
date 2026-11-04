@@ -507,35 +507,6 @@ fun NoteDetailScreen(
                 Text(stringResource(R.string.action_delete_note))
             }
         }
-        val bucketDesc = stringResource(R.string.cd_note_bucket, note.bucketKind)
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = note.bucketKind,
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.semantics { contentDescription = bucketDesc }
-            )
-            if (note.status == NoteStatus.NEEDS_REVIEW.name) {
-                Text(
-                    text = "Needs review",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.semantics { contentDescription = "Needs review status" }
-                )
-            }
-        }
-        if (note.status == NoteStatus.NEEDS_REVIEW.name) {
-            OutlinedButton(
-                onClick = { onConfirmOrChangeBucket(note.bucketKind) },
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .semantics { contentDescription = "Confirm bucket filing" }
-            ) {
-                Text("Confirm filing (${note.bucketKind})")
-            }
-        }
         val effectiveBuckets = remember(availableBuckets, buckets) {
             if (buckets.isNotEmpty()) {
                 buckets.map { it.kind to it.name }
@@ -546,15 +517,29 @@ fun NoteDetailScreen(
         if (effectiveBuckets.isNotEmpty()) {
             FlowRow(
                 modifier = Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 effectiveBuckets.forEach { (bucketKind, bucketName) ->
+                    val isFiledBucket = note.bucketKind == bucketKind
+                    val isNeedsReview = note.status == NoteStatus.NEEDS_REVIEW.name
+                    val isSelected = isFiledBucket && !isNeedsReview
                     FilterChip(
-                        selected = note.bucketKind == bucketKind && note.status == NoteStatus.SORTED.name,
+                        selected = isSelected,
                         onClick = { onConfirmOrChangeBucket(bucketKind) },
-                        label = { Text(bucketName) },
+                        label = {
+                            if (isFiledBucket && isNeedsReview) {
+                                Text("$bucketName (Suggested)")
+                            } else {
+                                Text(bucketName)
+                            }
+                        },
                         modifier = Modifier.semantics {
-                            contentDescription = "File in $bucketKind"
+                            contentDescription = if (isFiledBucket && isNeedsReview) {
+                                "Suggested bucket $bucketName, tap to confirm filing"
+                            } else {
+                                "File in $bucketKind"
+                            }
                         }
                     )
                 }
@@ -568,12 +553,34 @@ fun NoteDetailScreen(
                 }
             }
         }
+        if (note.status == NoteStatus.NEEDS_REVIEW.name) {
+            OutlinedButton(
+                onClick = { onConfirmOrChangeBucket(note.bucketKind) },
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .semantics { contentDescription = "Confirm bucket filing" }
+            ) {
+                Text("Confirm filing (${note.bucketKind})")
+            }
+        }
         if (tags.isNotEmpty()) {
-            Text(
-                text = "Tags: ${tags.joinToString(", ") { "#$it" }}",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+            FlowRow(
+                modifier = Modifier.padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                tags.forEach { tag ->
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("#$tag", style = MaterialTheme.typography.labelSmall) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        border = null
+                    )
+                }
+            }
         }
         if (note.transcript.isNotBlank()) {
             Text(
@@ -646,14 +653,48 @@ fun NoteDetailScreen(
             }
         }
         if (note.stageStatus.isNotBlank()) {
-            val pipelineDesc = stringResource(R.string.cd_note_pipeline, note.stageStatus)
+            val stages = remember(note.stageStatus) {
+                NoteCardFormatting.formatPipelineStages(note.stageStatus)
+            }
+            Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Pipeline: ${note.stageStatus}",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier
-                    .padding(top = 16.dp)
-                    .semantics { contentDescription = pipelineDesc }
+                text = "Processing status",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(modifier = Modifier.height(4.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                stages.forEach { (stage, status) ->
+                    val isSuccess = status == "OK"
+                    val isSkipped = status == "SKIPPED" || status == "DEFAULT"
+                    val (containerColor, labelColor) = when {
+                        isSuccess -> Pair(
+                            MaterialTheme.colorScheme.primaryContainer,
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        isSkipped -> Pair(
+                            MaterialTheme.colorScheme.surfaceVariant,
+                            MaterialTheme.colorScheme.outline
+                        )
+                        else -> Pair(
+                            MaterialTheme.colorScheme.errorContainer,
+                            MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("$stage: $status", style = MaterialTheme.typography.labelSmall) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = containerColor,
+                            labelColor = labelColor
+                        ),
+                        border = null
+                    )
+                }
+            }
         }
     }
 }
