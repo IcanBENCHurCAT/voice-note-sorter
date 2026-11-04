@@ -80,13 +80,13 @@ class DebugSeedInstrumentedTest {
         composeRule.onNodeWithText("Renovation follow-ups for today").assertIsDisplayed()
         composeRule.onNodeWithText("Renovation follow-ups for today").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Call the electrician before noon")
+            composeRule.onAllNodesWithText("Tags: #errands, #renovation")
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
         composeRule.onNodeWithText("Tags: #errands, #renovation").assertIsDisplayed()
-        composeRule.onNodeWithText("Call the electrician before noon").assertIsDisplayed()
-        composeRule.onNodeWithText("Send the updated floor plan PDF to Dana").assertIsDisplayed()
+        composeRule.onNodeWithText("[x] Call the electrician before noon").assertIsDisplayed()
+        composeRule.onNodeWithText("[ ] Send the updated floor plan PDF to Dana").assertIsDisplayed()
 
         // 4. Clear data and re-seed without reinstalling
         composeRule.onNodeWithContentDescription("Clear seed data").performClick()
