@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.Bucket
@@ -62,7 +63,7 @@ class NotesListFilterAndMetadataTest {
         composeTestRule.onNodeWithText("Task 1").assertIsDisplayed()
 
         // Click on "Tasks (1)" filter chip
-        composeTestRule.onNodeWithContentDescription("Filter by bucket Tasks").performClick()
+        composeTestRule.onNodeWithContentDescription("Filter by bucket Tasks").performScrollTo().performClick()
 
         // Only Task 1 displayed
         composeTestRule.onNodeWithText("Task 1").assertIsDisplayed()
