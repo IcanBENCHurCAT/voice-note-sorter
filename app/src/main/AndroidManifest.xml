@@ -60,5 +60,10 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <service
+            android:name=".capture.RecordingService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
     </application>
 </manifest>
