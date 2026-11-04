@@ -59,6 +59,17 @@ data class BucketProfile(val buckets: List<BucketDef>)
 
 data class BucketDef(val kind: String, val name: String, val keywords: List<String>)
 
+interface Embedder {
+    suspend fun status(): CapabilityStatus
+    /** Generates an embedding vector for the text. Returns null when unsupported on the active tier. */
+    suspend fun embed(text: String): FloatArray?
+}
+
+class NoOpEmbedder : Embedder {
+    override suspend fun status(): CapabilityStatus = CapabilityStatus.UNAVAILABLE
+    override suspend fun embed(text: String): FloatArray? = null
+}
+
 class CapabilityBusyException : Exception("Capability busy or over quota; demote and retry later")
 
 /** Extension point: downstream modules (Pro, white-label) supply their

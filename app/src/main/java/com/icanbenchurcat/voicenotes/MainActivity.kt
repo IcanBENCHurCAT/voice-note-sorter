@@ -45,6 +45,8 @@ import com.icanbenchurcat.voicenotes.data.FtsQuerySanitizer
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
 import com.icanbenchurcat.voicenotes.data.NoteDeletionCoordinator
+import com.icanbenchurcat.voicenotes.data.DefaultSearchRepository
+import com.icanbenchurcat.voicenotes.data.SearchRepository
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.StorageRetentionManager
@@ -83,20 +85,16 @@ data object SettingsKey : NavKey
 data class NoteDetailKey(val noteId: Long) : NavKey
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class NotesViewModel(private val dao: NoteDao) : ViewModel() {
+class NotesViewModel(
+    private val dao: NoteDao,
+    private val searchRepo: SearchRepository = DefaultSearchRepository(dao)
+) : ViewModel() {
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     val notes: Flow<List<Note>> = _searchQuery
         .flatMapLatest { query ->
-            val sanitized = FtsQuerySanitizer.sanitize(query)
-            if (sanitized != null) {
-                dao.search(sanitized)
-            } else if (query.isNotBlank()) {
-                flowOf(emptyList())
-            } else {
-                dao.observeAll()
-            }
+            searchRepo.search(query)
         }
 
     val tasks: Flow<List<ActionItemWithNote>> = dao.observeAllActions()
