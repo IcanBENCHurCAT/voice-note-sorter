@@ -2,19 +2,27 @@
 
 package com.icanbenchurcat.voicenotes
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -23,9 +31,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
@@ -34,6 +44,9 @@ import androidx.navigation3.ui.NavDisplay
 import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.Tier
+import com.icanbenchurcat.voicenotes.capture.CaptureSessionState
+import com.icanbenchurcat.voicenotes.capture.RecordingService
+import com.icanbenchurcat.voicenotes.capture.StartCaptureUseCase
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.AppDatabase
@@ -43,6 +56,7 @@ import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDeletionCoordinator
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.debug.DebugSeedToolbar
+import com.icanbenchurcat.voicenotes.ui.ActiveRecordingBanner
 import com.icanbenchurcat.voicenotes.ui.BucketManagementDialog
 import androidx.lifecycle.viewModelScope
 import com.icanbenchurcat.voicenotes.data.FtsQuerySanitizer
@@ -103,10 +117,83 @@ class MainActivity : ComponentActivity() {
         val dao = db.noteDao()
         val deletionCoordinator = NoteDeletionCoordinator.fromContext(this)
         val capabilityProbe = CapabilityProbe.get(this)
-        // TODO(capture): EXTRA_START_RECORDING from the QS tile / widget
-        // deep-links straight into the recorder once capture lands.
+        val startRecordingFromIntent = intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true
+
         setContent {
             MaterialTheme {
+                val context = LocalContext.current
+                val captureUseCase = remember { StartCaptureUseCase(context) }
+                val recordingSessionState by RecordingService.sessionState.collectAsState()
+
+                var showMicRationaleDialog by remember { mutableStateOf(false) }
+
+                val permissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestMultiplePermissions()
+                ) { permissions ->
+                    val micGranted = permissions[Manifest.permission.RECORD_AUDIO] == true
+                    if (micGranted) {
+                        captureUseCase.startRecording()
+                    } else {
+                        showMicRationaleDialog = true
+                    }
+                }
+
+                fun triggerCapture() {
+                    val hasMic = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+
+                    val hasNotif = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        ) == PackageManager.PERMISSION_GRANTED
+                    } else true
+
+                    if (hasMic) {
+                        captureUseCase.startRecording()
+                        if (!hasNotif && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                        }
+                    } else {
+                        val permsToRequest = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                        if (!hasNotif && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        permissionLauncher.launch(permsToRequest.toTypedArray())
+                    }
+                }
+
+                LaunchedEffect(startRecordingFromIntent) {
+                    if (startRecordingFromIntent) {
+                        triggerCapture()
+                    }
+                }
+
+                if (showMicRationaleDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showMicRationaleDialog = false },
+                        title = { Text(stringResource(R.string.app_name)) },
+                        text = { Text(stringResource(R.string.permission_microphone_rationale)) },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    showMicRationaleDialog = false
+                                    permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                                }
+                            ) {
+                                Text(stringResource(R.string.permission_grant))
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showMicRationaleDialog = false }) {
+                                Text(stringResource(R.string.dialog_cancel))
+                            }
+                        }
+                    )
+                }
+
                 val backStack = rememberNavBackStack(NotesListKey)
                 val vm = remember { NotesViewModel(dao) }
                 val notes by vm.notes.collectAsState(initial = emptyList())
@@ -148,7 +235,7 @@ class MainActivity : ComponentActivity() {
                     floatingActionButton = {
                         val recordDesc = stringResource(R.string.cd_record_fab)
                         FloatingActionButton(
-                            onClick = { /* TODO(capture): recorder */ },
+                            onClick = { triggerCapture() },
                             modifier = Modifier.semantics { contentDescription = recordDesc }
                         ) {
                             Text(
@@ -163,6 +250,16 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(padding)
                     ) {
+                        (recordingSessionState as? CaptureSessionState.Recording)?.let { activeSession ->
+                            ActiveRecordingBanner(
+                                state = activeSession,
+                                onPause = { captureUseCase.pauseRecording() },
+                                onResume = { captureUseCase.resumeRecording() },
+                                onStop = { captureUseCase.stopRecording() },
+                                onCancel = { captureUseCase.cancelRecording() }
+                            )
+                        }
+
                         DebugSeedToolbar(
                             db = db,
                             onReset = {
