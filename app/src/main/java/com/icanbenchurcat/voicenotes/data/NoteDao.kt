@@ -23,6 +23,12 @@ interface NoteDao {
     @Query("SELECT audioPath FROM notes")
     suspend fun allAudioPaths(): List<String>
 
+    @Query("SELECT * FROM notes WHERE audioPath != '' AND createdAtEpochMs < :cutoffEpochMs")
+    suspend fun findNotesWithAudioOlderThan(cutoffEpochMs: Long): List<Note>
+
+    @Query("UPDATE notes SET audioPath = '' WHERE id = :id")
+    suspend fun clearAudioPath(id: Long)
+
     @Query("SELECT * FROM notes ORDER BY createdAtEpochMs DESC")
     fun observeAll(): Flow<List<Note>>
 

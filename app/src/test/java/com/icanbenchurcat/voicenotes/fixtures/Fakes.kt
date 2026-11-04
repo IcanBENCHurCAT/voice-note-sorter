@@ -121,6 +121,14 @@ class InMemoryFakeNoteDao : NoteDao {
     override suspend fun allAudioPaths(): List<String> =
         notes.values.map { it.audioPath }
 
+    override suspend fun findNotesWithAudioOlderThan(cutoffEpochMs: Long): List<Note> =
+        notes.values.filter { it.audioPath.isNotBlank() && it.createdAtEpochMs < cutoffEpochMs }
+
+    override suspend fun clearAudioPath(id: Long) {
+        val existing = notes[id] ?: return
+        notes[id] = existing.copy(audioPath = "")
+    }
+
     override fun observeAll(): Flow<List<Note>> = flowOf(notes.values.toList())
 
     override fun observeByBucket(kind: String): Flow<List<Note>> =

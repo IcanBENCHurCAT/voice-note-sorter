@@ -47,6 +47,8 @@ import com.icanbenchurcat.voicenotes.data.NoteDao
 import com.icanbenchurcat.voicenotes.data.NoteDeletionCoordinator
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
+import com.icanbenchurcat.voicenotes.data.StorageRetentionManager
+import com.icanbenchurcat.voicenotes.data.StorageStats
 import com.icanbenchurcat.voicenotes.data.Tag
 import com.icanbenchurcat.voicenotes.debug.DebugSeedToolbar
 import com.icanbenchurcat.voicenotes.ui.BucketManagementDialog
@@ -114,6 +116,7 @@ class MainActivity : ComponentActivity() {
         val dao = db.noteDao()
         val deletionCoordinator = NoteDeletionCoordinator.fromContext(this)
         val capabilityProbe = CapabilityProbe.get(this)
+        val storageManager = StorageRetentionManager.fromContext(this)
         enableEdgeToEdge()
         // TODO(capture): EXTRA_START_RECORDING from the QS tile / widget
         // deep-links straight into the recorder once capture lands.
@@ -133,7 +136,15 @@ class MainActivity : ComponentActivity() {
                 var summarizerStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
                 var actionExtractorStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
                 var isProbingCapabilities by remember { mutableStateOf(false) }
+                var storageStats by remember { mutableStateOf(StorageStats(0L, 0L, 0)) }
+                val isAutoDeleteOldAudioEnabled by storageManager.isAutoDeleteOldAudioEnabled.collectAsState(initial = false)
                 val scope = rememberCoroutineScope()
+
+                fun refreshStorageStats() {
+                    scope.launch {
+                        storageStats = storageManager.getStorageStats()
+                    }
+                }
 
                 fun probeAllCapabilities() {
                     scope.launch {
@@ -148,6 +159,9 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     probeAllCapabilities()
+                    refreshStorageStats()
+                    // Run retention purge opportunistically on app launch if enabled
+                    storageManager.runRetentionPolicyIfEnabled()
                 }
 
                 if (showBucketManagementDialog) {
@@ -273,13 +287,25 @@ class MainActivity : ComponentActivity() {
                                                 transcriberStatus = transcriberStatus,
                                                 summarizerStatus = summarizerStatus,
                                                 actionExtractorStatus = actionExtractorStatus,
-                                                isLoading = isProbingCapabilities
+                                                isLoading = isProbingCapabilities,
+                                                storageStats = storageStats,
+                                                isAutoDeleteOldAudioEnabled = isAutoDeleteOldAudioEnabled
                                             ),
                                             onBack = { backStack.removeLastOrNull() },
                                             onRefreshProbe = {
                                                 scope.launch {
                                                     capabilityProbe.invalidate()
                                                     probeAllCapabilities()
+                                                    refreshStorageStats()
+                                                }
+                                            },
+                                            onToggleAutoDeleteOldAudio = { enabled ->
+                                                scope.launch {
+                                                    storageManager.setAutoDeleteOldAudioEnabled(enabled)
+                                                    if (enabled) {
+                                                        storageManager.runRetentionPolicyIfEnabled()
+                                                        refreshStorageStats()
+                                                    }
                                                 }
                                             }
                                         )

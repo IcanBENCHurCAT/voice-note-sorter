@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -25,9 +26,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -38,16 +45,19 @@ import androidx.compose.ui.unit.dp
 import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.Tier
+import com.icanbenchurcat.voicenotes.data.StorageStats
 
 /**
- * UI model representing device capability status for the settings screen.
+ * UI model representing device capability status and storage metrics for the settings screen.
  */
 data class CapabilitySettingsUiState(
     val tier: Tier? = null,
     val transcriberStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     val summarizerStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     val actionExtractorStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val storageStats: StorageStats = StorageStats(0L, 0L, 0),
+    val isAutoDeleteOldAudioEnabled: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,8 +65,34 @@ data class CapabilitySettingsUiState(
 fun SettingsScreen(
     uiState: CapabilitySettingsUiState,
     onBack: () -> Unit,
-    onRefreshProbe: () -> Unit = {}
+    onRefreshProbe: () -> Unit = {},
+    onToggleAutoDeleteOldAudio: (Boolean) -> Unit = {}
 ) {
+    var showEnableRetentionDialog by remember { mutableStateOf(false) }
+
+    if (showEnableRetentionDialog) {
+        AlertDialog(
+            onDismissRequest = { showEnableRetentionDialog = false },
+            title = { Text(stringResource(R.string.dialog_enable_retention_title)) },
+            text = { Text(stringResource(R.string.dialog_enable_retention_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showEnableRetentionDialog = false
+                        onToggleAutoDeleteOldAudio(true)
+                    }
+                ) {
+                    Text(stringResource(R.string.action_enable))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEnableRetentionDialog = false }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -134,7 +170,30 @@ fun SettingsScreen(
                 ) {
                     Text(stringResource(R.string.action_refresh_capabilities))
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            item {
+                Text(
+                    text = stringResource(R.string.storage_heading),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                )
+            }
+
+            item {
+                StorageStatsCard(
+                    storageStats = uiState.storageStats,
+                    isAutoDeleteEnabled = uiState.isAutoDeleteOldAudioEnabled,
+                    onToggleAutoDelete = { enable ->
+                        if (enable) {
+                            showEnableRetentionDialog = true
+                        } else {
+                            onToggleAutoDeleteOldAudio(false)
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -293,4 +352,97 @@ fun StatusChip(status: CapabilityStatus) {
         colors = chipColors,
         border = null
     )
+}
+
+@Composable
+fun StorageStatsCard(
+    storageStats: StorageStats,
+    isAutoDeleteEnabled: Boolean,
+    onToggleAutoDelete: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.storage_audio_usage),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = formatFileSize(storageStats.audioSizeBytes),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.storage_database_usage),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "${formatFileSize(storageStats.databaseSizeBytes)} (${stringResource(R.string.storage_note_count, storageStats.noteCount)})",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                    Text(
+                        text = stringResource(R.string.storage_auto_delete_title),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.storage_auto_delete_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Switch(
+                    checked = isAutoDeleteEnabled,
+                    onCheckedChange = onToggleAutoDelete,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Toggle auto-delete audio older than 90 days"
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    val gb = mb / 1024.0
+    return when {
+        gb >= 1.0 -> String.format(java.util.Locale.US, "%.1f GB", gb)
+        mb >= 1.0 -> String.format(java.util.Locale.US, "%.1f MB", mb)
+        kb >= 1.0 -> String.format(java.util.Locale.US, "%.1f KB", kb)
+        else -> "$bytes B"
+    }
 }
