@@ -60,5 +60,15 @@ jobs:
           target: aosp_atd
           arch: x86_64
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: ./gradlew :app:connectedDebugAndroidTest --stacktrace
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: ./gradlew :app:connectedDebugAndroidTest --info --stacktrace
+
+      - name: Upload instrumented test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-test-reports-api-${{ matrix.api-level }}
+          path: |
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
+          if-no-files-found: ignore
