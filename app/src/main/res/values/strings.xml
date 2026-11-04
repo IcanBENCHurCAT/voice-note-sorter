@@ -62,4 +62,18 @@
     <string name="status_busy">Busy</string>
     <string name="status_unavailable">Unavailable</string>
     <string name="action_refresh_capabilities">Re-check capabilities</string>
+    <string name="channel_recording_name">Active Recording</string>
+    <string name="channel_recording_desc">Controls and status for active voice note recording</string>
+    <string name="notif_recording_active_title">Recording note</string>
+    <string name="notif_recording_paused_title">Recording paused</string>
+    <string name="notif_recording_warning_title">Recording limit approaching (5 min)</string>
+    <string name="notif_recording_elapsed">Elapsed: %1$s</string>
+    <string name="notif_recording_warning_desc">Elapsed: %1$s • 1 minute remaining before auto-stop</string>
+    <string name="action_pause_recording">Pause</string>
+    <string name="action_resume_recording">Resume</string>
+    <string name="action_stop_recording">Stop</string>
+    <string name="action_cancel_recording">Cancel</string>
+    <string name="permission_microphone_rationale">Microphone permission is needed to record voice notes on this device.</string>
+    <string name="permission_grant">Grant permission</string>
+    <string name="recording_limit_warning">4-minute warning: recording will stop at 5 minutes.</string>
 </resources>
