@@ -166,8 +166,8 @@ class CaptureToFiledLoopE2ETest {
         }
 
         composeRule.onNodeWithText("Tags: #buy, #call, #remind-me").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("[ ] Remind me to call the electrician tomorrow.", substring = true).performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("[ ] Also buy copper wire for the kitchen.", substring = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Remind me to call the electrician tomorrow.").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Also buy copper wire for the kitchen.").performScrollTo().assertIsDisplayed()
 
         // Inspect persisted DB records
         var noteId = 0L

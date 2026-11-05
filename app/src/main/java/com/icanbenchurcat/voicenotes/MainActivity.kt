@@ -257,15 +257,19 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(
                     floatingActionButton = {
-                        val recordDesc = stringResource(R.string.cd_record_fab)
-                        FloatingActionButton(
-                            onClick = { triggerCapture() },
-                            modifier = Modifier.semantics { contentDescription = recordDesc }
-                        ) {
-                            Text(
-                                "●",
-                                modifier = Modifier.semantics { contentDescription = "" }
-                            )
+                        val currentDestination = backStack.lastOrNull()
+                        val isRootTab = currentDestination is NotesListKey || currentDestination is TasksKey
+                        if (isRootTab) {
+                            val recordDesc = stringResource(R.string.cd_record_fab)
+                            FloatingActionButton(
+                                onClick = { triggerCapture() },
+                                modifier = Modifier.semantics { contentDescription = recordDesc }
+                            ) {
+                                Text(
+                                    "●",
+                                    modifier = Modifier.semantics { contentDescription = "" }
+                                )
+                            }
                         }
                     }
                 ) { padding ->
@@ -390,24 +394,16 @@ class MainActivity : ComponentActivity() {
                                     entry<NoteDetailKey> { key ->
                                         val note = notes.firstOrNull { it.id == key.noteId }
                                         if (note != null) {
-                                            var actions by remember(note.id) {
-                                                mutableStateOf<List<ActionItem>>(emptyList())
-                                            }
-                                            var tags by remember(note.id) {
-                                                mutableStateOf<List<String>>(emptyList())
-                                            }
-                                            LaunchedEffect(note.id) {
-                                                actions = dao.actionsFor(note.id)
-                                                tags = dao.tagsFor(note.id)
-                                            }
+                                            val noteActions by dao.observeActionsFor(note.id).collectAsState(initial = emptyList())
+                                            val noteTagsList by dao.observeTagsFor(note.id).collectAsState(initial = emptyList())
                                             val context = androidx.compose.ui.platform.LocalContext.current
                                             val hasAudio = remember(note.audioPath) {
                                                 note.audioPath.isNotBlank() && java.io.File(note.audioPath).exists()
                                             }
                                             NoteDetailScreen(
                                                 note = note,
-                                                actions = actions,
-                                                tags = tags,
+                                                actions = noteActions,
+                                                tags = noteTagsList,
                                                 transcriberStatus = transcriberStatus,
                                                 hasAudioFile = hasAudio,
                                                 buckets = buckets,
@@ -418,6 +414,11 @@ class MainActivity : ComponentActivity() {
                                                             bucketKind = bucketKind,
                                                             status = NoteStatus.SORTED.name
                                                         )
+                                                    }
+                                                },
+                                                onToggleActionDone = { actionId, done ->
+                                                    scope.launch {
+                                                        dao.updateActionDone(actionId, done)
                                                     }
                                                 },
                                                 onDeleteNote = {

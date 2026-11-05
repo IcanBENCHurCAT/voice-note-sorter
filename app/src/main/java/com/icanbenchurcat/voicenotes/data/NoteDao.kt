@@ -61,6 +61,9 @@ interface NoteDao {
     suspend fun deleteAllActions()
 
     @Query("SELECT * FROM action_items WHERE noteId = :noteId ORDER BY id ASC")
+    fun observeActionsFor(noteId: Long): Flow<List<ActionItem>>
+
+    @Query("SELECT * FROM action_items WHERE noteId = :noteId ORDER BY id ASC")
     suspend fun actionsFor(noteId: Long): List<ActionItem>
 
     @Query(
@@ -118,6 +121,9 @@ interface NoteDao {
 
     @Query("DELETE FROM note_tags")
     suspend fun deleteAllNoteTags()
+
+    @Query("SELECT tagName FROM note_tags WHERE noteId = :noteId ORDER BY tagName ASC")
+    fun observeTagsFor(noteId: Long): Flow<List<String>>
 
     @Query("SELECT tagName FROM note_tags WHERE noteId = :noteId ORDER BY tagName ASC")
     suspend fun tagsFor(noteId: Long): List<String>

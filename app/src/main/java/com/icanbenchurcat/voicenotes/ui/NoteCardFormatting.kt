@@ -62,4 +62,13 @@ object NoteCardFormatting {
             }
         }
     }
+
+    /**
+     * Formats a due date epoch timestamp in milliseconds for task items.
+     */
+    fun formatDueDate(dueAtEpochMs: Long): String {
+        if (dueAtEpochMs <= 0L) return ""
+        val format = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+        return format.format(Date(dueAtEpochMs))
+    }
 }

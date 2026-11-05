@@ -7,8 +7,8 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
@@ -81,13 +81,13 @@ class DebugSeedInstrumentedTest {
         composeRule.onNodeWithText("Renovation follow-ups for today").assertIsDisplayed()
         composeRule.onNodeWithText("Renovation follow-ups for today").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Tags: #errands, #renovation")
+            composeRule.onAllNodesWithText("Call the electrician before noon")
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
         composeRule.onNodeWithText("Tags: #errands, #renovation").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("[x] Call the electrician before noon").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("[ ] Send the updated floor plan PDF to Dana").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Call the electrician before noon").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Send the updated floor plan PDF to Dana").performScrollTo().assertIsDisplayed()
 
         // 4. Clear data and re-seed without reinstalling
         composeRule.onNodeWithContentDescription("Clear seed data").performClick()
