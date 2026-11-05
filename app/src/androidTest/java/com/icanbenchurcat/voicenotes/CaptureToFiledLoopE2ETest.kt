@@ -161,11 +161,13 @@ class CaptureToFiledLoopE2ETest {
         composeRule.onNodeWithText(expectedTitle).performClick()
 
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodes(hasText("Tags: #buy, #call, #remind-me"))
+            composeRule.onAllNodes(hasText("#buy"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeRule.onNodeWithText("Tags: #buy, #call, #remind-me").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("#buy").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("#call").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("#remind-me").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Remind me to call the electrician tomorrow.").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Also buy copper wire for the kitchen.").performScrollTo().assertIsDisplayed()
 

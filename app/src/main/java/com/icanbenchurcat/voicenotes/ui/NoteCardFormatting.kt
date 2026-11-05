@@ -71,4 +71,22 @@ object NoteCardFormatting {
         val format = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
         return format.format(Date(dueAtEpochMs))
     }
+
+    /**
+     * Formats a raw comma-separated stage status string (e.g. "transcribe:OK,bucket:OK")
+     * into a human-friendly list of stage and status pairs.
+     */
+    fun formatPipelineStages(rawStageStatus: String): List<Pair<String, String>> {
+        if (rawStageStatus.isBlank()) return emptyList()
+        return rawStageStatus.split(",").mapNotNull { entry ->
+            val parts = entry.split(":")
+            if (parts.size == 2) {
+                val stage = parts[0].trim().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+                val status = parts[1].trim()
+                Pair(stage, status)
+            } else {
+                null
+            }
+        }
+    }
 }

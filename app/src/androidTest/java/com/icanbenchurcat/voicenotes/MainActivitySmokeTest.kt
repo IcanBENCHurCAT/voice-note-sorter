@@ -72,8 +72,9 @@ class MainActivitySmokeTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeRule.onNodeWithText("Pick up coffee beans and oat milk on the way home.").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Pipeline: transcribe:OK,title:OK,actions:OK,bucket:OK").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Pick up coffee beans and oat milk on the way home.").assertIsDisplayed()
+        composeRule.onNodeWithText("Transcribe: OK").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Bucket: OK").performScrollTo().assertIsDisplayed()
     }
 
     @Test

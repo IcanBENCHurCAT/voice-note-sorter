@@ -52,4 +52,14 @@ class NoteCardFormattingTest {
         assertEquals("Yesterday", NoteCardFormatting.formatTimestamp(now - 25 * 3600 * 1000, now))
         assertEquals("3d ago", NoteCardFormatting.formatTimestamp(now - 3 * 86400 * 1000, now))
     }
+
+    @Test
+    fun formatPipelineStages_parsesRawDebugString() {
+        val stages = NoteCardFormatting.formatPipelineStages("transcribe:OK,title:OK,actions:OK,bucket:OK")
+        assertEquals(4, stages.size)
+        assertEquals(Pair("Transcribe", "OK"), stages[0])
+        assertEquals(Pair("Title", "OK"), stages[1])
+        assertEquals(Pair("Actions", "OK"), stages[2])
+        assertEquals(Pair("Bucket", "OK"), stages[3])
+    }
 }

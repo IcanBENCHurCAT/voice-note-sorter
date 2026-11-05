@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -32,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -265,9 +267,9 @@ class MainActivity : ComponentActivity() {
                                 onClick = { triggerCapture() },
                                 modifier = Modifier.semantics { contentDescription = recordDesc }
                             ) {
-                                Text(
-                                    "●",
-                                    modifier = Modifier.semantics { contentDescription = "" }
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_tile_record),
+                                    contentDescription = null
                                 )
                             }
                         }

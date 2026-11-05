@@ -85,7 +85,8 @@ class DebugSeedInstrumentedTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeRule.onNodeWithText("Tags: #errands, #renovation").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("#errands").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("#renovation").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Call the electrician before noon").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Send the updated floor plan PDF to Dana").performScrollTo().assertIsDisplayed()
 

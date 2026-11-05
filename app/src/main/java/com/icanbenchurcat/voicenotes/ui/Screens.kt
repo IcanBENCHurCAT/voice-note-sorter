@@ -18,8 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -29,12 +27,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.LinearProgressIndicator
-import com.icanbenchurcat.voicenotes.audio.AudioPlaybackState
-import com.icanbenchurcat.voicenotes.audio.PlaybackStatus
-import com.icanbenchurcat.voicenotes.audio.rememberAudioPlayerState
-
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +57,11 @@ import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LinearProgressIndicator
+import com.icanbenchurcat.voicenotes.audio.AudioPlaybackState
+import com.icanbenchurcat.voicenotes.audio.PlaybackStatus
+import com.icanbenchurcat.voicenotes.audio.rememberAudioPlayerState
 
 /** Notes list: filed cards, newest first. The bucket chip and the tier
  *  marker are shown on purpose - the demo value of this app is that the
@@ -445,84 +442,6 @@ fun NotesListScreen(
     }
 }
 
-@Composable
-fun AudioPlaybackControl(
-    audioPlaybackState: AudioPlaybackState,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = 16.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.audio_playback_title),
-                style = MaterialTheme.typography.titleSmall
-            )
-
-            if (!audioPlaybackState.isFileAvailable || audioPlaybackState.errorMessage != null) {
-                Text(
-                    text = audioPlaybackState.errorMessage ?: stringResource(R.string.audio_missing_error),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val isPlaying = audioPlaybackState.status == PlaybackStatus.PLAYING
-                    val playPauseDesc = if (isPlaying) {
-                        stringResource(R.string.cd_pause_audio)
-                    } else {
-                        stringResource(R.string.cd_play_audio)
-                    }
-
-                    FilledTonalButton(
-                        onClick = { audioPlaybackState.togglePlayPause() },
-                        modifier = Modifier
-                            .defaultMinSize(minHeight = 48.dp)
-                            .semantics { contentDescription = playPauseDesc }
-                    ) {
-                        Text(if (isPlaying) "Pause" else "Play")
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        LinearProgressIndicator(
-                            progress = { audioPlaybackState.progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = audioPlaybackState.elapsedFormatted,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                            Text(
-                                text = audioPlaybackState.durationFormatted,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NoteDetailScreen(
@@ -633,45 +552,39 @@ fun NoteDetailScreen(
                     .semantics { contentDescription = "Edit transcript input" },
                 minLines = 4
             )
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = note.title.ifBlank { "Untitled note" },
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            OutlinedButton(
+                onClick = {
+                    editTitle = note.title
+                    editTranscript = note.transcript
+                    isEditing = true
+                },
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .semantics { contentDescription = "Edit note" }
             ) {
-                Text(
-                    text = note.title.ifBlank { "Untitled note" },
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            editTitle = note.title
-                            editTranscript = note.transcript
-                            isEditing = true
-                        },
-                        modifier = Modifier
-                            .defaultMinSize(minHeight = 48.dp)
-                            .semantics { contentDescription = "Edit note" }
-                    ) {
-                        Text(stringResource(R.string.action_edit_note))
-                    }
-                    OutlinedButton(
-                        onClick = { showDeleteConfirmDialog = true },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier
-                            .defaultMinSize(minHeight = 48.dp)
-                            .semantics { contentDescription = "Delete note" }
-                    ) {
-                        Text(stringResource(R.string.action_delete_note))
-                    }
-                }
+                Text(stringResource(R.string.action_edit_note))
             }
-
+            OutlinedButton(
+                onClick = { showDeleteConfirmDialog = true },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .semantics { contentDescription = "Delete note" }
+            ) {
+                Text(stringResource(R.string.action_delete_note))
+            }
+        }
             FlowRow(
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -695,160 +608,278 @@ fun NoteDetailScreen(
                     }
                 }
             }
-
-            val bucketDesc = stringResource(R.string.cd_note_bucket, note.bucketKind)
-            Row(
+        val effectiveBuckets = remember(availableBuckets, buckets) {
+            if (buckets.isNotEmpty()) {
+                buckets.map { it.kind to it.name }
+            } else {
+                availableBuckets.map { it to it }
+            }
+        }
+        if (effectiveBuckets.isNotEmpty()) {
+            FlowRow(
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = note.bucketKind,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.semantics { contentDescription = bucketDesc }
-                )
-                if (note.status == NoteStatus.NEEDS_REVIEW.name) {
-                    Text(
-                        text = "Needs review",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.semantics { contentDescription = "Needs review status" }
-                    )
-                }
-            }
-            if (note.status == NoteStatus.NEEDS_REVIEW.name) {
-                OutlinedButton(
-                    onClick = { onConfirmOrChangeBucket(note.bucketKind) },
-                    modifier = Modifier
-                        .padding(top = 8.dp)
-                        .semantics { contentDescription = "Confirm bucket filing" }
-                ) {
-                    Text("Confirm filing (${note.bucketKind})")
-                }
-            }
-            val effectiveBuckets = remember(availableBuckets, buckets) {
-                if (buckets.isNotEmpty()) {
-                    buckets.map { it.kind to it.name }
-                } else {
-                    availableBuckets.map { it to it }
-                }
-            }
-            if (effectiveBuckets.isNotEmpty()) {
-                FlowRow(
-                    modifier = Modifier.padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    effectiveBuckets.forEach { (bucketKind, bucketName) ->
-                        FilterChip(
-                            selected = note.bucketKind == bucketKind && note.status == NoteStatus.SORTED.name,
-                            onClick = { onConfirmOrChangeBucket(bucketKind) },
-                            label = { Text(bucketName) },
-                            modifier = Modifier.semantics {
-                                contentDescription = "File in $bucketKind"
+                effectiveBuckets.forEach { (bucketKind, bucketName) ->
+                    val isFiledBucket = note.bucketKind == bucketKind
+                    val isNeedsReview = note.status == NoteStatus.NEEDS_REVIEW.name
+                    val isSelected = isFiledBucket && !isNeedsReview
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onConfirmOrChangeBucket(bucketKind) },
+                        label = {
+                            if (isFiledBucket && isNeedsReview) {
+                                Text("$bucketName (Suggested)")
+                            } else {
+                                Text(bucketName)
                             }
-                        )
-                    }
-                    if (onManageBuckets != null) {
-                        TextButton(
-                            onClick = onManageBuckets,
-                            modifier = Modifier.semantics { contentDescription = "Manage buckets" }
-                        ) {
-                            Text(stringResource(R.string.action_manage_buckets))
+                        },
+                        modifier = Modifier.semantics {
+                            contentDescription = if (isFiledBucket && isNeedsReview) {
+                                "Suggested bucket $bucketName, tap to confirm filing"
+                            } else {
+                                "File in $bucketKind"
+                            }
                         }
-                    }
-                }
-            }
-            if (tags.isNotEmpty()) {
-                Text(
-                    text = "Tags: ${tags.joinToString(", ") { "#$it" }}",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-            if (note.transcript.isNotBlank()) {
-                Text(
-                    text = note.transcript,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(top = 16.dp)
-                )
-            } else {
-                Text(
-                    text = "No transcript yet. Playback is available; this note was filed by hand (Tier 1).",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 16.dp)
-                )
-                if (transcriberStatus == CapabilityStatus.DOWNLOADABLE) {
-                    Text(
-                        text = "On-device speech model is downloadable; note can be upgraded once downloaded.",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
-            }
-            if (actions.isNotEmpty()) {
-                Text(
-                    text = "Action items",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
-                )
-                actions.forEach { item ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = 48.dp)
-                            .clickable(enabled = onToggleActionDone != null) {
-                                onToggleActionDone?.invoke(item.id, !item.done)
-                            }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                if (onManageBuckets != null) {
+                    TextButton(
+                        onClick = onManageBuckets,
+                        modifier = Modifier.semantics { contentDescription = "Manage buckets" }
                     ) {
-                        Checkbox(
-                            checked = item.done,
-                            onCheckedChange = { done ->
-                                onToggleActionDone?.invoke(item.id, done)
-                            },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Toggle action item: ${item.text}"
-                            }
-                        )
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(start = 8.dp)
-                        ) {
-                            Text(
-                                text = item.text,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            if (item.dueAtEpochMs != null && item.dueAtEpochMs > 0L) {
-                                val formattedDue = NoteCardFormatting.formatDueDate(item.dueAtEpochMs)
-                                if (formattedDue.isNotBlank()) {
-                                    Text(
-                                        text = "Due: $formattedDue",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(top = 2.dp)
-                                    )
-                                }
-                            }
-                        }
+                        Text(stringResource(R.string.action_manage_buckets))
                     }
                 }
             }
-            if (note.stageStatus.isNotBlank()) {
-                val pipelineDesc = stringResource(R.string.cd_note_pipeline, note.stageStatus)
+        }
+        if (note.status == NoteStatus.NEEDS_REVIEW.name) {
+            OutlinedButton(
+                onClick = { onConfirmOrChangeBucket(note.bucketKind) },
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .semantics { contentDescription = "Confirm bucket filing" }
+            ) {
+                Text("Confirm filing (${note.bucketKind})")
+            }
+        }
+        if (tags.isNotEmpty()) {
+            FlowRow(
+                modifier = Modifier.padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                tags.forEach { tag ->
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("#$tag", style = MaterialTheme.typography.labelSmall) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        border = null
+                    )
+                }
+            }
+        }
+        if (note.transcript.isNotBlank()) {
+            Text(
+                text = note.transcript,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        } else {
+            Text(
+                text = "No transcript yet. Playback is available; this note was filed by hand (Tier 1).",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+            if (transcriberStatus == CapabilityStatus.DOWNLOADABLE) {
                 Text(
-                    text = "Pipeline: ${note.stageStatus}",
+                    text = "On-device speech model is downloadable; note can be upgraded once downloaded.",
                     style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier
-                        .padding(top = 16.dp)
-                        .semantics { contentDescription = pipelineDesc }
+                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
         }
-        AudioPlaybackControl(
-            audioPlaybackState = audioPlaybackState,
-            modifier = Modifier.padding(top = 16.dp)
-        )
+        if (actions.isNotEmpty()) {
+            Text(
+                text = "Action items",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+            )
+            actions.forEach { item ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .clickable(enabled = onToggleActionDone != null) {
+                            onToggleActionDone?.invoke(item.id, !item.done)
+                        }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = item.done,
+                        onCheckedChange = { done ->
+                            onToggleActionDone?.invoke(item.id, done)
+                        },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Toggle action item: ${item.text}"
+                        }
+                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp)
+                    ) {
+                        Text(
+                            text = item.text,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        if (item.dueAtEpochMs != null && item.dueAtEpochMs > 0L) {
+                            val formattedDue = NoteCardFormatting.formatDueDate(item.dueAtEpochMs)
+                            if (formattedDue.isNotBlank()) {
+                                Text(
+                                    text = "Due: $formattedDue",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (hasAudioFile) {
+            AudioPlaybackControl(
+                audioPlaybackState = audioPlaybackState,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        }
+        if (note.stageStatus.isNotBlank()) {
+            val stages = remember(note.stageStatus) {
+                NoteCardFormatting.formatPipelineStages(note.stageStatus)
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Processing status",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                stages.forEach { (stage, status) ->
+                    val isSuccess = status == "OK"
+                    val isSkipped = status == "SKIPPED" || status == "DEFAULT"
+                    val (containerColor, labelColor) = when {
+                        isSuccess -> Pair(
+                            MaterialTheme.colorScheme.primaryContainer,
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        isSkipped -> Pair(
+                            MaterialTheme.colorScheme.surfaceVariant,
+                            MaterialTheme.colorScheme.outline
+                        )
+                        else -> Pair(
+                            MaterialTheme.colorScheme.errorContainer,
+                            MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("$stage: $status", style = MaterialTheme.typography.labelSmall) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = containerColor,
+                            labelColor = labelColor
+                        ),
+                        border = null
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AudioPlaybackControl(
+    audioPlaybackState: AudioPlaybackState,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.audio_playback_title),
+                style = MaterialTheme.typography.titleSmall
+            )
+
+            if (!audioPlaybackState.isFileAvailable || audioPlaybackState.errorMessage != null) {
+                Text(
+                    text = audioPlaybackState.errorMessage ?: stringResource(R.string.audio_missing_error),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val isPlaying = audioPlaybackState.status == PlaybackStatus.PLAYING
+                    val playPauseDesc = if (isPlaying) {
+                        stringResource(R.string.cd_pause_audio)
+                    } else {
+                        stringResource(R.string.cd_play_audio)
+                    }
+
+                    FilledTonalButton(
+                        onClick = { audioPlaybackState.togglePlayPause() },
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .semantics { contentDescription = playPauseDesc }
+                    ) {
+                        Text(if (isPlaying) "Pause" else "Play")
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        LinearProgressIndicator(
+                            progress = { audioPlaybackState.progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = audioPlaybackState.elapsedFormatted,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                text = audioPlaybackState.durationFormatted,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
