@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -241,8 +243,15 @@ fun NoteDetailScreen(
     buckets: List<Bucket> = emptyList(),
     onConfirmOrChangeBucket: (String) -> Unit = {},
     onDeleteNote: () -> Unit = {},
+    onSaveEdit: (title: String, transcript: String) -> Unit = { _, _ -> },
+    onShareText: () -> Unit = {},
+    onShareAudio: () -> Unit = {},
+    hasAudioFile: Boolean = false,
     onManageBuckets: (() -> Unit)? = null
 ) {
+    var isEditing by rememberSaveable { mutableStateOf(false) }
+    var editTitle by rememberSaveable(note.id, isEditing) { mutableStateOf(note.title) }
+    var editTranscript by rememberSaveable(note.id, isEditing) { mutableStateOf(note.transcript) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     if (showDeleteConfirmDialog) {
@@ -276,140 +285,238 @@ fun NoteDetailScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = note.title.ifBlank { "Untitled note" },
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.weight(1f, fill = false)
-            )
-            OutlinedButton(
-                onClick = { showDeleteConfirmDialog = true },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier
-                    .defaultMinSize(minHeight = 48.dp)
-                    .semantics { contentDescription = "Delete note" }
+        if (isEditing) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(stringResource(R.string.action_delete_note))
+                OutlinedButton(
+                    onClick = {
+                        isEditing = false
+                        editTitle = note.title
+                        editTranscript = note.transcript
+                    },
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .semantics { contentDescription = "Cancel editing note" }
+                ) {
+                    Text(stringResource(R.string.action_cancel_edit))
+                }
+                OutlinedButton(
+                    onClick = {
+                        isEditing = false
+                        onSaveEdit(editTitle, editTranscript)
+                    },
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .semantics { contentDescription = "Save edited note" }
+                ) {
+                    Text(stringResource(R.string.action_save_note))
+                }
             }
-        }
-        val bucketDesc = stringResource(R.string.cd_note_bucket, note.bucketKind)
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = note.bucketKind,
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.semantics { contentDescription = bucketDesc }
-            )
-            if (note.status == NoteStatus.NEEDS_REVIEW.name) {
-                Text(
-                    text = "Needs review",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.semantics { contentDescription = "Needs review status" }
-                )
-            }
-        }
-        if (note.status == NoteStatus.NEEDS_REVIEW.name) {
-            OutlinedButton(
-                onClick = { onConfirmOrChangeBucket(note.bucketKind) },
+
+            OutlinedTextField(
+                value = editTitle,
+                onValueChange = { editTitle = it },
+                label = { Text(stringResource(R.string.edit_title_label)) },
                 modifier = Modifier
+                    .fillMaxWidth()
                     .padding(top = 8.dp)
-                    .semantics { contentDescription = "Confirm bucket filing" }
+                    .semantics { contentDescription = "Edit title input" }
+            )
+
+            OutlinedTextField(
+                value = editTranscript,
+                onValueChange = { editTranscript = it },
+                label = { Text(stringResource(R.string.edit_transcript_label)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .weight(1f, fill = false)
+                    .semantics { contentDescription = "Edit transcript input" },
+                minLines = 4
+            )
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Confirm filing (${note.bucketKind})")
+                Text(
+                    text = note.title.ifBlank { "Untitled note" },
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            editTitle = note.title
+                            editTranscript = note.transcript
+                            isEditing = true
+                        },
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .semantics { contentDescription = "Edit note" }
+                    ) {
+                        Text(stringResource(R.string.action_edit_note))
+                    }
+                    OutlinedButton(
+                        onClick = { showDeleteConfirmDialog = true },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .semantics { contentDescription = "Delete note" }
+                    ) {
+                        Text(stringResource(R.string.action_delete_note))
+                    }
+                }
             }
-        }
-        val effectiveBuckets = remember(availableBuckets, buckets) {
-            if (buckets.isNotEmpty()) {
-                buckets.map { it.kind to it.name }
-            } else {
-                availableBuckets.map { it to it }
-            }
-        }
-        if (effectiveBuckets.isNotEmpty()) {
+
             FlowRow(
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                effectiveBuckets.forEach { (bucketKind, bucketName) ->
-                    FilterChip(
-                        selected = note.bucketKind == bucketKind && note.status == NoteStatus.SORTED.name,
-                        onClick = { onConfirmOrChangeBucket(bucketKind) },
-                        label = { Text(bucketName) },
-                        modifier = Modifier.semantics {
-                            contentDescription = "File in $bucketKind"
-                        }
-                    )
+                OutlinedButton(
+                    onClick = onShareText,
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .semantics { contentDescription = "Share note text" }
+                ) {
+                    Text(stringResource(R.string.action_share_text))
                 }
-                if (onManageBuckets != null) {
-                    TextButton(
-                        onClick = onManageBuckets,
-                        modifier = Modifier.semantics { contentDescription = "Manage buckets" }
+                if (hasAudioFile) {
+                    OutlinedButton(
+                        onClick = onShareAudio,
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .semantics { contentDescription = "Share note audio" }
                     ) {
-                        Text(stringResource(R.string.action_manage_buckets))
+                        Text(stringResource(R.string.action_share_audio))
                     }
                 }
             }
-        }
-        if (tags.isNotEmpty()) {
-            Text(
-                text = "Tags: ${tags.joinToString(", ") { "#$it" }}",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-        }
-        if (note.transcript.isNotBlank()) {
-            Text(
-                text = note.transcript,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-        } else {
-            Text(
-                text = "No transcript yet. Playback is available; this note was filed by hand (Tier 1).",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-            if (transcriberStatus == CapabilityStatus.DOWNLOADABLE) {
+
+            val bucketDesc = stringResource(R.string.cd_note_bucket, note.bucketKind)
+            Row(
+                modifier = Modifier.padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "On-device speech model is downloadable; note can be upgraded once downloaded.",
+                    text = note.bucketKind,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.semantics { contentDescription = bucketDesc }
+                )
+                if (note.status == NoteStatus.NEEDS_REVIEW.name) {
+                    Text(
+                        text = "Needs review",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.semantics { contentDescription = "Needs review status" }
+                    )
+                }
+            }
+            if (note.status == NoteStatus.NEEDS_REVIEW.name) {
+                OutlinedButton(
+                    onClick = { onConfirmOrChangeBucket(note.bucketKind) },
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .semantics { contentDescription = "Confirm bucket filing" }
+                ) {
+                    Text("Confirm filing (${note.bucketKind})")
+                }
+            }
+            val effectiveBuckets = remember(availableBuckets, buckets) {
+                if (buckets.isNotEmpty()) {
+                    buckets.map { it.kind to it.name }
+                } else {
+                    availableBuckets.map { it to it }
+                }
+            }
+            if (effectiveBuckets.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    effectiveBuckets.forEach { (bucketKind, bucketName) ->
+                        FilterChip(
+                            selected = note.bucketKind == bucketKind && note.status == NoteStatus.SORTED.name,
+                            onClick = { onConfirmOrChangeBucket(bucketKind) },
+                            label = { Text(bucketName) },
+                            modifier = Modifier.semantics {
+                                contentDescription = "File in $bucketKind"
+                            }
+                        )
+                    }
+                    if (onManageBuckets != null) {
+                        TextButton(
+                            onClick = onManageBuckets,
+                            modifier = Modifier.semantics { contentDescription = "Manage buckets" }
+                        ) {
+                            Text(stringResource(R.string.action_manage_buckets))
+                        }
+                    }
+                }
+            }
+            if (tags.isNotEmpty()) {
+                Text(
+                    text = "Tags: ${tags.joinToString(", ") { "#$it" }}",
                     style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(top = 4.dp)
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
-        }
-        if (actions.isNotEmpty()) {
-            Text(
-                text = "Action items",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-            actions.forEach { item ->
-                val marker = if (item.done) "[x]" else "[ ]"
+            if (note.transcript.isNotBlank()) {
                 Text(
-                    text = "$marker ${item.text}",
+                    text = note.transcript,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+            } else {
+                Text(
+                    text = "No transcript yet. Playback is available; this note was filed by hand (Tier 1).",
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp)
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+                if (transcriberStatus == CapabilityStatus.DOWNLOADABLE) {
+                    Text(
+                        text = "On-device speech model is downloadable; note can be upgraded once downloaded.",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+            if (actions.isNotEmpty()) {
+                Text(
+                    text = "Action items",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+                actions.forEach { item ->
+                    val marker = if (item.done) "[x]" else "[ ]"
+                    Text(
+                        text = "$marker ${item.text}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+            if (note.stageStatus.isNotBlank()) {
+                val pipelineDesc = stringResource(R.string.cd_note_pipeline, note.stageStatus)
+                Text(
+                    text = "Pipeline: ${note.stageStatus}",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .padding(top = 16.dp)
+                        .semantics { contentDescription = pipelineDesc }
                 )
             }
-        }
-        if (note.stageStatus.isNotBlank()) {
-            val pipelineDesc = stringResource(R.string.cd_note_pipeline, note.stageStatus)
-            Text(
-                text = "Pipeline: ${note.stageStatus}",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier
-                    .padding(top = 16.dp)
-                    .semantics { contentDescription = pipelineDesc }
-            )
         }
     }
 }

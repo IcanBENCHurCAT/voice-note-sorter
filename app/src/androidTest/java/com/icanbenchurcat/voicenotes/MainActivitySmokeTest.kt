@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
@@ -71,8 +72,8 @@ class MainActivitySmokeTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeRule.onNodeWithText("Pick up coffee beans and oat milk on the way home.").assertIsDisplayed()
-        composeRule.onNodeWithText("Pipeline: transcribe:OK,title:OK,actions:OK,bucket:OK").assertIsDisplayed()
+        composeRule.onNodeWithText("Pick up coffee beans and oat milk on the way home.").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Pipeline: transcribe:OK,title:OK,actions:OK,bucket:OK").performScrollTo().assertIsDisplayed()
     }
 
     @Test
