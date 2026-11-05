@@ -52,20 +52,19 @@ import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.BucketManager
+import com.icanbenchurcat.voicenotes.data.FtsQuerySanitizer
 import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.NoteDao
 import com.icanbenchurcat.voicenotes.data.NoteDeletionCoordinator
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.debug.DebugSeedToolbar
 import com.icanbenchurcat.voicenotes.ui.ActiveRecordingBanner
 import com.icanbenchurcat.voicenotes.ui.BucketManagementDialog
+import com.icanbenchurcat.voicenotes.ui.CapabilitySettingsUiState
 import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
 import com.icanbenchurcat.voicenotes.ui.NoteShareHelper
 import com.icanbenchurcat.voicenotes.ui.NotesListScreen
-import androidx.lifecycle.viewModelScope
-import com.icanbenchurcat.voicenotes.data.FtsQuerySanitizer
-import com.icanbenchurcat.voicenotes.data.NoteDao
-import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
-import com.icanbenchurcat.voicenotes.ui.NotesListScreen
+import com.icanbenchurcat.voicenotes.ui.SettingsScreen
 import com.icanbenchurcat.voicenotes.ui.TasksScreen
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -84,6 +83,9 @@ data object NotesListKey : NavKey
 
 @Serializable
 data object TasksKey : NavKey
+
+@Serializable
+data object SettingsKey : NavKey
 
 @Serializable
 data class NoteDetailKey(val noteId: Long) : NavKey
@@ -206,11 +208,24 @@ class MainActivity : ComponentActivity() {
                 val tasks by vm.tasks.collectAsState(initial = emptyList())
                 var deviceTier by remember { mutableStateOf<Tier?>(null) }
                 var transcriberStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
+                var summarizerStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
+                var actionExtractorStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
+                var isProbingCapabilities by remember { mutableStateOf(false) }
                 val scope = rememberCoroutineScope()
 
+                fun probeAllCapabilities() {
+                    scope.launch {
+                        isProbingCapabilities = true
+                        transcriberStatus = capabilityProbe.transcriberStatus()
+                        summarizerStatus = capabilityProbe.summarizerStatus()
+                        actionExtractorStatus = capabilityProbe.actionExtractorStatus()
+                        deviceTier = capabilityProbe.resolveDeviceTier()
+                        isProbingCapabilities = false
+                    }
+                }
+
                 LaunchedEffect(Unit) {
-                    transcriberStatus = capabilityProbe.transcriberStatus()
-                    deviceTier = capabilityProbe.resolveDeviceTier()
+                    probeAllCapabilities()
                 }
 
                 if (showBucketManagementDialog) {
@@ -325,10 +340,29 @@ class MainActivity : ComponentActivity() {
                                             searchQuery = searchQuery,
                                             onSearchQueryChange = vm::onSearchQueryChange,
                                             deviceTier = deviceTier,
-                                            onManageBuckets = { showBucketManagementDialog = true }
+                                            onManageBuckets = { showBucketManagementDialog = true },
+                                            onOpenSettings = { backStack.add(SettingsKey) }
                                         ) { note ->
                                             backStack.add(NoteDetailKey(note.id))
                                         }
+                                    }
+                                    entry<SettingsKey> {
+                                        SettingsScreen(
+                                            uiState = CapabilitySettingsUiState(
+                                                tier = deviceTier,
+                                                transcriberStatus = transcriberStatus,
+                                                summarizerStatus = summarizerStatus,
+                                                actionExtractorStatus = actionExtractorStatus,
+                                                isLoading = isProbingCapabilities
+                                            ),
+                                            onBack = { backStack.removeLastOrNull() },
+                                            onRefreshProbe = {
+                                                scope.launch {
+                                                    capabilityProbe.invalidate()
+                                                    probeAllCapabilities()
+                                                }
+                                            }
+                                        )
                                     }
                                     entry<TasksKey> {
                                         TasksScreen(
