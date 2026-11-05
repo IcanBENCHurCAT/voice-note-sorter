@@ -129,6 +129,13 @@ class InMemoryFakeNoteDao : NoteDao {
         notes[id] = existing.copy(audioPath = "")
     }
 
+    override suspend fun updateTitleAndTranscript(noteId: Long, title: String, transcript: String) {
+        val existing = notes[noteId] ?: return
+        val updated = existing.copy(title = title, transcript = transcript)
+        notes[noteId] = updated
+        updateSnapshots += updated
+    }
+
     override fun observeAll(): Flow<List<Note>> = flowOf(notes.values.toList())
 
     override fun observeByBucket(kind: String): Flow<List<Note>> =

@@ -29,6 +29,9 @@ interface NoteDao {
     @Query("UPDATE notes SET audioPath = '' WHERE id = :id")
     suspend fun clearAudioPath(id: Long)
 
+    @Query("UPDATE notes SET title = :title, transcript = :transcript WHERE id = :noteId")
+    suspend fun updateTitleAndTranscript(noteId: Long, title: String, transcript: String)
+
     @Query("SELECT * FROM notes ORDER BY createdAtEpochMs DESC")
     fun observeAll(): Flow<List<Note>>
 

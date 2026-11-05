@@ -64,9 +64,9 @@ class SortingWorker(
     constructor(context: Context, params: WorkerParameters) : this(
         context = context,
         params = params,
-        capabilityProbe = CapabilityProbe.get(context),
-        transcriber = NanoTranscriber(context),
-        platformTranscriber = PlatformTranscriber(context),
+        capabilityProbe = capabilityProbeOverride ?: CapabilityProbe.get(context),
+        transcriber = transcriberOverride ?: NanoTranscriber(context),
+        platformTranscriber = transcriberOverride ?: PlatformTranscriber(context),
         nullTranscriber = NullTranscriber,
         summarizer = ExtractiveSummarizer(),
         extractor = HeuristicActionExtractor(),
@@ -97,6 +97,12 @@ class SortingWorker(
 
     companion object {
         const val KEY_NOTE_ID = "noteId"
+
+        @Volatile
+        var capabilityProbeOverride: CapabilityProbe? = null
+
+        @Volatile
+        var transcriberOverride: Transcriber? = null
 
         suspend fun executePipeline(
             note: Note,
