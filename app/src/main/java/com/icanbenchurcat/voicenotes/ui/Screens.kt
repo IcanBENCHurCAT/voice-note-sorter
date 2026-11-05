@@ -540,7 +540,7 @@ fun NoteDetailScreen(
                         onClick = { showDeleteConfirmDialog = true },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         modifier = Modifier
-                            .defaultMinSize(minHeight = 40.dp)
+                            .defaultMinSize(minHeight = 48.dp)
                             .semantics { contentDescription = "Delete note" }
                     ) {
                         Text(stringResource(R.string.action_delete_note))
