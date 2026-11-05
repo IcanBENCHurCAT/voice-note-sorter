@@ -88,4 +88,13 @@
     <string name="permission_microphone_rationale">Microphone permission is needed to record voice notes on this device.</string>
     <string name="permission_grant">Grant permission</string>
     <string name="recording_limit_warning">4-minute warning: recording will stop at 5 minutes.</string>
+    <string name="storage_heading">Storage &amp; Data</string>
+    <string name="storage_audio_usage">Audio recordings</string>
+    <string name="storage_database_usage">Database</string>
+    <string name="storage_note_count">%1$d voice notes</string>
+    <string name="storage_auto_delete_title">Auto-delete audio after 90 days</string>
+    <string name="storage_auto_delete_subtitle">Transcripts, action items, tags, and notes are always kept. Only original audio files older than 90 days will be removed.</string>
+    <string name="dialog_enable_retention_title">Enable 90-day audio auto-delete?</string>
+    <string name="dialog_enable_retention_message">Original audio recordings older than 90 days will be permanently deleted from local device storage to free space. Your transcripts, summaries, tags, and action items will remain intact forever.</string>
+    <string name="action_enable">Enable</string>
 </resources>
