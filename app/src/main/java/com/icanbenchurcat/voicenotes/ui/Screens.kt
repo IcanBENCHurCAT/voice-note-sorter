@@ -765,6 +765,26 @@ fun NoteDetailScreen(
                     modifier = Modifier.padding(top = 8.dp)
                 )
             }
+            if (note.transcript.isNotBlank()) {
+                Text(
+                    text = note.transcript,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+            } else {
+                Text(
+                    text = "No transcript yet. Playback is available; this note was filed by hand (Tier 1).",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+                if (transcriberStatus == CapabilityStatus.DOWNLOADABLE) {
+                    Text(
+                        text = "On-device speech model is downloadable; note can be upgraded once downloaded.",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
             if (actions.isNotEmpty()) {
                 Text(
                     text = "Action items",
