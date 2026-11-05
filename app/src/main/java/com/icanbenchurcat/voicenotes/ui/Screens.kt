@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -48,10 +50,18 @@ import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.ai.Tier
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import com.icanbenchurcat.voicenotes.data.ActionItem
+import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteStatus
+import com.icanbenchurcat.voicenotes.data.NoteTag
 
 /** Notes list: filed cards, newest first. The bucket chip and the tier
  *  marker are shown on purpose - the demo value of this app is that the
@@ -62,20 +72,51 @@ fun NotesListScreen(
     searchQuery: String = "",
     onSearchQueryChange: (String) -> Unit = {},
     deviceTier: Tier? = null,
+    buckets: List<Bucket> = emptyList(),
+    tasks: List<ActionItemWithNote> = emptyList(),
+    tags: List<String> = emptyList(),
+    noteTags: List<NoteTag> = emptyList(),
     onManageBuckets: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     onOpen: (Note) -> Unit
 ) {
+    var selectedBucketKind by rememberSaveable { mutableStateOf<String?>(null) }
     var filterNeedsReviewOnly by rememberSaveable { mutableStateOf(false) }
+    var selectedTag by rememberSaveable { mutableStateOf<String?>(null) }
+
     val needsReviewCount = notes.count { it.status == NoteStatus.NEEDS_REVIEW.name }
-    val displayedNotes = if (filterNeedsReviewOnly) {
-        notes.filter { it.status == NoteStatus.NEEDS_REVIEW.name }
-    } else {
-        notes
+
+    val displayedNotes = notes.filter { note ->
+        val matchesReview = !filterNeedsReviewOnly || note.status == NoteStatus.NEEDS_REVIEW.name
+        val matchesBucket = selectedBucketKind == null || note.bucketKind == selectedBucketKind
+        val matchesTag = selectedTag == null || noteTags.any { it.noteId == note.id && it.tagName == selectedTag }
+        matchesReview && matchesBucket && matchesTag
     }
 
     val isSearching = searchQuery.isNotBlank()
     val isLibraryEmpty = notes.isEmpty() && !isSearching
+
+    // Precalculate task counts per note (done / total)
+    val taskCountsByNote = remember(tasks) {
+        tasks.groupBy { it.noteId }.mapValues { (_, items) ->
+            val doneCount = items.count { it.done }
+            Pair(doneCount, items.size)
+        }
+    }
+
+    // Precalculate tags per note
+    val tagsByNote = remember(noteTags) {
+        noteTags.groupBy { it.noteId }.mapValues { (_, items) ->
+            items.map { it.tagName }.sorted()
+        }
+    }
+
+    // Active buckets list (fallback to defaults if DB buckets not loaded yet)
+    val effectiveBuckets = if (buckets.isNotEmpty()) {
+        buckets
+    } else {
+        DefaultBucketProfileProvider.profile().buckets.map { Bucket(kind = it.kind, name = it.name) }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -142,6 +183,7 @@ fun NotesListScreen(
             }
         )
 
+        // Horizontal filter bar: All, Needs Review, Bucket chips, and Manage Buckets
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -149,26 +191,92 @@ fun NotesListScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val isAllSelected = selectedBucketKind == null && !filterNeedsReviewOnly && selectedTag == null
                 FilterChip(
-                    selected = !filterNeedsReviewOnly,
-                    onClick = { filterNeedsReviewOnly = false },
+                    selected = isAllSelected,
+                    onClick = {
+                        selectedBucketKind = null
+                        filterNeedsReviewOnly = false
+                        selectedTag = null
+                    },
                     label = { Text("All (${notes.size})") },
                     modifier = Modifier.semantics { contentDescription = "Filter all notes" }
                 )
                 FilterChip(
                     selected = filterNeedsReviewOnly,
-                    onClick = { filterNeedsReviewOnly = !filterNeedsReviewOnly },
+                    onClick = {
+                        filterNeedsReviewOnly = !filterNeedsReviewOnly
+                        if (filterNeedsReviewOnly) {
+                            selectedBucketKind = null
+                            selectedTag = null
+                        }
+                    },
                     label = { Text("Needs review ($needsReviewCount)") },
                     modifier = Modifier.semantics { contentDescription = "Filter Needs Review notes" }
                 )
+                effectiveBuckets.forEach { b ->
+                    val bucketCount = notes.count { it.bucketKind == b.kind }
+                    val isBucketSelected = selectedBucketKind == b.kind
+                    FilterChip(
+                        selected = isBucketSelected,
+                        onClick = {
+                            selectedBucketKind = if (isBucketSelected) null else b.kind
+                            if (selectedBucketKind != null) {
+                                filterNeedsReviewOnly = false
+                            }
+                        },
+                        label = { Text("${b.name} ($bucketCount)") },
+                        modifier = Modifier.semantics { contentDescription = "Filter by bucket ${b.name}" }
+                    )
+                }
             }
             if (onManageBuckets != null) {
                 OutlinedButton(
                     onClick = onManageBuckets,
-                    modifier = Modifier.semantics { contentDescription = "Manage buckets" }
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .semantics { contentDescription = "Manage buckets" }
                 ) {
                     Text(stringResource(R.string.action_manage_buckets))
+                }
+            }
+        }
+
+        // Tag filter chips (if tags exist in library)
+        if (tags.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Tags:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                tags.forEach { tagName ->
+                    val isSelected = selectedTag == tagName
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            selectedTag = if (isSelected) null else tagName
+                            if (selectedTag != null) {
+                                filterNeedsReviewOnly = false
+                            }
+                        },
+                        label = { Text("#$tagName") },
+                        modifier = Modifier.semantics { contentDescription = "Filter by tag $tagName" }
+                    )
                 }
             }
         }
@@ -181,8 +289,14 @@ fun NotesListScreen(
                 Text(
                     text = if (isSearching) {
                         stringResource(R.string.search_no_matches)
-                    } else {
+                    } else if (filterNeedsReviewOnly) {
                         "No notes need review."
+                    } else if (selectedBucketKind != null) {
+                        "No notes in this bucket."
+                    } else if (selectedTag != null) {
+                        "No notes with tag #$selectedTag."
+                    } else {
+                        "No notes found."
                     },
                     style = MaterialTheme.typography.bodyLarge
                 )
@@ -191,6 +305,15 @@ fun NotesListScreen(
         }
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(displayedNotes, key = { it.id }) { note ->
+                val deduplicatedSummary = remember(note.title, note.summary) {
+                    NoteCardFormatting.deduplicateSummary(note.title, note.summary)
+                }
+                val formattedTime = remember(note.createdAtEpochMs) {
+                    NoteCardFormatting.formatTimestamp(note.createdAtEpochMs)
+                }
+                val noteTasks = taskCountsByNote[note.id]
+                val noteTagList = tagsByNote[note.id] ?: emptyList()
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -199,36 +322,114 @@ fun NotesListScreen(
                         .clickable { onOpen(note) }
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = note.title.ifBlank { "Untitled note" },
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        if (note.summary.isNotBlank()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = note.summary,
+                                text = note.title.ifBlank { "Untitled note" },
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (formattedTime.isNotBlank()) {
+                                Text(
+                                    text = formattedTime,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
+                            }
+                        }
+
+                        if (deduplicatedSummary.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = deduplicatedSummary,
                                 style = MaterialTheme.typography.bodyMedium,
                                 maxLines = 2
                             )
                         }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
                         val metaDesc = stringResource(R.string.cd_note_meta, note.bucketKind, note.tierUsed)
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "${note.bucketKind} · ${note.tierUsed}",
-                                style = MaterialTheme.typography.labelSmall,
+                            SuggestionChip(
+                                onClick = {},
+                                label = {
+                                    Text(
+                                        text = "${note.bucketKind} · ${note.tierUsed}",
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ),
+                                border = null,
                                 modifier = Modifier.semantics { contentDescription = metaDesc }
                             )
+
                             if (note.status == NoteStatus.NEEDS_REVIEW.name) {
-                                Text(
-                                    text = "Needs review",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.semantics {
-                                        contentDescription = "Needs review badge"
-                                    }
+                                SuggestionChip(
+                                    onClick = {},
+                                    label = {
+                                        Text(
+                                            text = "Needs review",
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                                        labelColor = MaterialTheme.colorScheme.onErrorContainer
+                                    ),
+                                    border = null,
+                                    modifier = Modifier.semantics { contentDescription = "Needs review badge" }
                                 )
+                            }
+
+                            if (noteTasks != null && noteTasks.second > 0) {
+                                val (doneCount, totalCount) = noteTasks
+                                SuggestionChip(
+                                    onClick = {},
+                                    label = {
+                                        Text(
+                                            text = "Tasks $doneCount/$totalCount",
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    ),
+                                    border = null,
+                                    modifier = Modifier.semantics { contentDescription = "Tasks: $doneCount of $totalCount completed" }
+                                )
+                            }
+                        }
+
+                        if (noteTagList.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                noteTagList.forEach { tag ->
+                                    Text(
+                                        text = "#$tag",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(end = 4.dp)
+                                    )
+                                }
                             }
                         }
                     }

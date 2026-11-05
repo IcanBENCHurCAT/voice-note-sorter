@@ -227,6 +227,12 @@ class InMemoryFakeNoteDao : NoteDao {
     override suspend fun allTags(): List<Tag> =
         tags.sorted().map { Tag(it) }
 
+    override fun observeAllTags(): Flow<List<Tag>> =
+        flowOf(tags.sorted().map { Tag(it) })
+
+    override fun observeAllNoteTags(): Flow<List<NoteTag>> =
+        flowOf(noteTags.toList())
+
     override suspend fun deleteAllTags() {
         tags.clear()
     }
