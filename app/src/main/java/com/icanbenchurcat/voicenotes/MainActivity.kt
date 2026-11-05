@@ -10,6 +10,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -70,6 +71,7 @@ import com.icanbenchurcat.voicenotes.ui.NoteShareHelper
 import com.icanbenchurcat.voicenotes.ui.NotesListScreen
 import com.icanbenchurcat.voicenotes.ui.SettingsScreen
 import com.icanbenchurcat.voicenotes.ui.TasksScreen
+import com.icanbenchurcat.voicenotes.ui.theme.VoiceNoteSorterTheme
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -128,10 +130,11 @@ class MainActivity : ComponentActivity() {
         val dao = db.noteDao()
         val deletionCoordinator = NoteDeletionCoordinator.fromContext(this)
         val capabilityProbe = CapabilityProbe.get(this)
+        enableEdgeToEdge()
         val startRecordingFromIntent = intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true
 
         setContent {
-            MaterialTheme {
+            VoiceNoteSorterTheme {
                 val context = LocalContext.current
                 val captureUseCase = remember { StartCaptureUseCase(context) }
                 val recordingSessionState by RecordingService.sessionState.collectAsState()
@@ -204,7 +207,6 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 }
-
                 val backStack = rememberNavBackStack(NotesListKey)
                 val vm = remember { NotesViewModel(dao) }
                 val notes by vm.notes.collectAsState(initial = emptyList())
@@ -409,6 +411,11 @@ class MainActivity : ComponentActivity() {
                                                 transcriberStatus = transcriberStatus,
                                                 hasAudioFile = hasAudio,
                                                 buckets = buckets,
+                                                onBack = {
+                                                    if (backStack.lastOrNull() == key) {
+                                                        backStack.removeLastOrNull()
+                                                    }
+                                                },
                                                 onConfirmOrChangeBucket = { bucketKind ->
                                                     scope.launch {
                                                         dao.confirmOrChangeBucket(

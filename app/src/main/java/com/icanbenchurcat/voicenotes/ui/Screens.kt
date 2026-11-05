@@ -18,6 +18,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -38,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
@@ -304,7 +310,9 @@ fun NotesListScreen(
             return
         }
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("notes_list"),
             contentPadding = PaddingValues(bottom = 80.dp)
         ) {
             items(displayedNotes, key = { it.id }) { note ->
@@ -442,7 +450,7 @@ fun NotesListScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun NoteDetailScreen(
     note: Note,
@@ -451,6 +459,7 @@ fun NoteDetailScreen(
     transcriberStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     availableBuckets: List<String> = DefaultBucketProfileProvider.profile().buckets.map { it.kind },
     buckets: List<Bucket> = emptyList(),
+    onBack: (() -> Unit)? = null,
     onConfirmOrChangeBucket: (String) -> Unit = {},
     onToggleActionDone: ((Long, Boolean) -> Unit)? = null,
     onDeleteNote: () -> Unit = {},
@@ -494,12 +503,59 @@ fun NoteDetailScreen(
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = note.title.ifBlank { "Untitled note" },
+                        maxLines = 1,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
+                navigationIcon = {
+                    if (onBack != null) {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.semantics { contentDescription = "Navigate back" }
+                        ) {
+                            Text("←", style = MaterialTheme.typography.titleLarge)
+                        }
+                    }
+                },
+                actions = {
+                    OutlinedButton(
+                        onClick = {
+                            editTitle = note.title
+                            editTranscript = note.transcript
+                            isEditing = true
+                        },
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 40.dp)
+                            .semantics { contentDescription = "Edit note" }
+                    ) {
+                        Text(stringResource(R.string.action_edit_note))
+                    }
+                    OutlinedButton(
+                        onClick = { showDeleteConfirmDialog = true },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 40.dp)
+                            .semantics { contentDescription = "Delete note" }
+                    ) {
+                        Text(stringResource(R.string.action_delete_note))
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
         if (isEditing) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -530,7 +586,6 @@ fun NoteDetailScreen(
                     Text(stringResource(R.string.action_save_note))
                 }
             }
-
             OutlinedTextField(
                 value = editTitle,
                 onValueChange = { editTitle = it },
@@ -540,7 +595,6 @@ fun NoteDetailScreen(
                     .padding(top = 8.dp)
                     .semantics { contentDescription = "Edit title input" }
             )
-
             OutlinedTextField(
                 value = editTranscript,
                 onValueChange = { editTranscript = it },
@@ -548,66 +602,34 @@ fun NoteDetailScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
-                    .weight(1f, fill = false)
                     .semantics { contentDescription = "Edit transcript input" },
                 minLines = 4
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = note.title.ifBlank { "Untitled note" },
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.weight(1f, fill = false)
-            )
             OutlinedButton(
-                onClick = {
-                    editTitle = note.title
-                    editTranscript = note.transcript
-                    isEditing = true
-                },
+                onClick = onShareText,
                 modifier = Modifier
                     .defaultMinSize(minHeight = 48.dp)
-                    .semantics { contentDescription = "Edit note" }
+                    .semantics { contentDescription = "Share note text" }
             ) {
-                Text(stringResource(R.string.action_edit_note))
+                Text(stringResource(R.string.action_share_text))
             }
-            OutlinedButton(
-                onClick = { showDeleteConfirmDialog = true },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier
-                    .defaultMinSize(minHeight = 48.dp)
-                    .semantics { contentDescription = "Delete note" }
-            ) {
-                Text(stringResource(R.string.action_delete_note))
-            }
-        }
-            FlowRow(
-                modifier = Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            if (hasAudioFile) {
                 OutlinedButton(
-                    onClick = onShareText,
+                    onClick = onShareAudio,
                     modifier = Modifier
                         .defaultMinSize(minHeight = 48.dp)
-                        .semantics { contentDescription = "Share note text" }
+                        .semantics { contentDescription = "Share note audio" }
                 ) {
-                    Text(stringResource(R.string.action_share_text))
-                }
-                if (hasAudioFile) {
-                    OutlinedButton(
-                        onClick = onShareAudio,
-                        modifier = Modifier
-                            .defaultMinSize(minHeight = 48.dp)
-                            .semantics { contentDescription = "Share note audio" }
-                    ) {
-                        Text(stringResource(R.string.action_share_audio))
-                    }
+                    Text(stringResource(R.string.action_share_audio))
                 }
             }
+        }
         val effectiveBuckets = remember(availableBuckets, buckets) {
             if (buckets.isNotEmpty()) {
                 buckets.map { it.kind to it.name }
@@ -804,6 +826,7 @@ fun NoteDetailScreen(
             }
         }
     }
+}
 }
 
 @Composable

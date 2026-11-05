@@ -2,18 +2,21 @@
 
 package com.icanbenchurcat.voicenotes.debug
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
@@ -48,46 +51,63 @@ object DebugSeedData {
         }
         dao.insertBuckets(defaultBuckets)
 
-        val baseTimeMs = 1_730_470_000_000L
+        val now = System.currentTimeMillis()
+        val dayMs = 24L * 60L * 60L * 1000L
 
-        // 1. IDEA bucket (Tier 3 FULL, tagged)
+        // 1. IDEA Note (Tier 2, Sorted)
         val ideaNoteId = dao.insert(
             Note(
-                createdAtEpochMs = baseTimeMs + 50_000L,
-                audioPath = "/data/user/0/com.icanbenchurcat.voicenotes/files/seed_idea.m4a",
-                transcript = "What if we built an offline contractor field-notes profile where site recordings automatically sort into punch-list items, change orders, and material requests?",
-                title = "Offline contractor field-notes profile",
-                summary = "White-label bucket profile sorting site voice notes into punch-list items, change orders, and material requests.",
+                createdAtEpochMs = now - (3 * dayMs),
+                audioPath = "/dev/null/idea.m4a",
+                transcript = "I had this concept for a modular voice note sorting pipeline where we could package the core open-source app and leave extension points for closed plugins.",
+                title = "Modular voice note sorting pipeline",
+                summary = "Concept for a modular voice note sorting pipeline with an open core and extension seams for plugins.",
                 bucketKind = "IDEA",
-                tierUsed = "FULL",
+                tierUsed = "CORE",
                 stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK",
                 status = NoteStatus.SORTED.name
             )
         )
 
-        // 2. TASK bucket (Tier 3 FULL, action items some done and some not, tagged)
+        // 2. TASK Note (Tier 2, Needs Review with action items and due dates)
         val taskNoteId = dao.insert(
             Note(
-                createdAtEpochMs = baseTimeMs + 40_000L,
-                audioPath = "/data/user/0/com.icanbenchurcat.voicenotes/files/seed_task.m4a",
-                transcript = "Remind me to call the electrician before noon, send the updated floor plan PDF to Dana, and pick up cabinet hinges at the hardware store.",
-                title = "Renovation follow-ups for today",
-                summary = "Call electrician before noon, send floor plan PDF to Dana, and buy cabinet hinges.",
+                createdAtEpochMs = now - (2 * dayMs),
+                audioPath = "/dev/null/task.m4a",
+                transcript = "Remember to call the electrician about the kitchen wiring by Friday at 5pm and pick up 14-gauge copper wire from Home Depot.",
+                title = "Kitchen electrical work",
+                summary = "Call electrician about kitchen wiring by Friday and pick up 14-gauge copper wire.",
                 bucketKind = "TASK",
-                tierUsed = "FULL",
+                tierUsed = "CORE",
                 stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK",
-                status = NoteStatus.SORTED.name
+                status = NoteStatus.NEEDS_REVIEW.name
+            )
+        )
+        dao.insertActions(
+            listOf(
+                ActionItem(
+                    noteId = taskNoteId,
+                    text = "Call electrician about kitchen wiring",
+                    dueAtEpochMs = now + (2 * dayMs),
+                    done = false
+                ),
+                ActionItem(
+                    noteId = taskNoteId,
+                    text = "Pick up 14-gauge copper wire from Home Depot",
+                    dueAtEpochMs = null,
+                    done = true
+                )
             )
         )
 
-        // 3. LIST bucket (Tier 2 CORE, tagged)
+        // 3. LIST Note (Tier 2, Sorted)
         val listNoteId = dao.insert(
             Note(
-                createdAtEpochMs = baseTimeMs + 30_000L,
-                audioPath = "/data/user/0/com.icanbenchurcat.voicenotes/files/seed_list.m4a",
-                transcript = "Weekend shopping list: espresso beans, oat milk, sourdough flour, cast iron seasoning oil, and AA batteries.",
-                title = "Weekend shopping list: espresso beans, oat milk",
-                summary = "Weekend shopping list: espresso beans, oat milk, sourdough flour, cast iron seasoning oil, and AA batteries.",
+                createdAtEpochMs = now - (1 * dayMs),
+                audioPath = "/dev/null/list.m4a",
+                transcript = "Grocery run list: sourdough bread, oat milk, honeycrisp apples, dark roast coffee beans, and unsalted butter.",
+                title = "Grocery run items",
+                summary = "Sourdough bread, oat milk, honeycrisp apples, coffee beans, and butter.",
                 bucketKind = "LIST",
                 tierUsed = "CORE",
                 stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK",
@@ -95,57 +115,48 @@ object DebugSeedData {
             )
         )
 
-        // 4. NOTE bucket (Tier 2 CORE, flagged Needs Review after low-confidence / default filing)
+        // 4. NOTE (Tier 2, Sorted)
         dao.insert(
             Note(
-                createdAtEpochMs = baseTimeMs + 20_000L,
-                audioPath = "/data/user/0/com.icanbenchurcat.voicenotes/files/seed_note.m4a",
-                transcript = "Architecture meeting recap: keep the open-core app in a single module until the closed Pro repository exists, and guard every ML Kit call behind the ai package interfaces.",
-                title = "Architecture meeting recap: keep the open-core",
-                summary = "Architecture meeting recap: keep the open-core app in a single module until the closed Pro repository exists.",
+                createdAtEpochMs = now - (12 * 60 * 60 * 1000L),
+                audioPath = "/dev/null/note.m4a",
+                transcript = "Interesting quote from the podcast: Simplicity is prerequisite for reliability. We should keep the Tier 1 fallback as lean as possible.",
+                title = "Podcast quote on simplicity",
+                summary = "Simplicity is prerequisite for reliability; keep Tier 1 fallback lean.",
                 bucketKind = "NOTE",
                 tierUsed = "CORE",
                 stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:OK",
-                status = NoteStatus.NEEDS_REVIEW.name
+                status = NoteStatus.SORTED.name
             )
         )
 
-        // 5. INBOX bucket (Tier 1 MINIMAL, no transcript)
+        // 5. INBOX (Tier 1 Fallback - Minimal mode, filed by hand)
         dao.insert(
             Note(
-                createdAtEpochMs = baseTimeMs + 10_000L,
-                audioPath = "/data/user/0/com.icanbenchurcat.voicenotes/files/seed_tier1_manual.m4a",
+                createdAtEpochMs = now - (2 * 60 * 60 * 1000L),
+                audioPath = "/dev/null/inbox_tier1.m4a",
                 transcript = "",
-                title = "Voice note 2026-11-01 08:15",
+                title = "Quick voice memo",
                 summary = "",
                 bucketKind = "INBOX",
                 tierUsed = "MINIMAL",
                 stageStatus = "transcribe:UNAVAILABLE,title:FALLBACK,actions:SKIPPED,bucket:DEFAULT",
-                status = NoteStatus.RECORDED.name
+                status = NoteStatus.SORTED.name
             )
         )
 
-        // Action items on the TASK note (some done, some not)
-        dao.insertActions(
-            listOf(
-                ActionItem(
-                    noteId = taskNoteId,
-                    text = "Call the electrician before noon",
-                    dueAtEpochMs = baseTimeMs + 86_400_000L,
-                    done = true
-                ),
-                ActionItem(
-                    noteId = taskNoteId,
-                    text = "Send the updated floor plan PDF to Dana",
-                    dueAtEpochMs = baseTimeMs + 172_800_000L,
-                    done = false
-                ),
-                ActionItem(
-                    noteId = taskNoteId,
-                    text = "Pick up cabinet hinges at the hardware store",
-                    dueAtEpochMs = null,
-                    done = false
-                )
+        // 6. INBOX (Tier 2 Needs Review - low-confidence classification)
+        dao.insert(
+            Note(
+                createdAtEpochMs = now - (15 * 60 * 1000L),
+                audioPath = "/dev/null/ambiguous.m4a",
+                transcript = "Maybe we should think about scheduling a check-in sometime next month or maybe not.",
+                title = "Check-in discussion",
+                summary = "Think about scheduling a check-in sometime next month.",
+                bucketKind = "INBOX",
+                tierUsed = "CORE",
+                stageStatus = "transcribe:OK,title:OK,actions:OK,bucket:LOW_CONFIDENCE",
+                status = NoteStatus.NEEDS_REVIEW.name
             )
         )
 
@@ -167,33 +178,41 @@ object DebugSeedData {
 @Composable
 fun DebugSeedToolbar(db: AppDatabase, onReset: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    DebugSeedData.seed(db)
-                    onReset()
-                }
-            },
-            modifier = Modifier.semantics { contentDescription = "Seed sample data" }
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.semantics { contentDescription = "Developer options" }
         ) {
-            Text("Seed sample data")
+            Text("🛠", style = MaterialTheme.typography.titleMedium)
         }
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    DebugSeedData.clear(db)
-                    onReset()
-                }
-            },
-            modifier = Modifier.semantics { contentDescription = "Clear seed data" }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
         ) {
-            Text("Clear data")
+            DropdownMenuItem(
+                text = { Text("Seed sample data") },
+                onClick = {
+                    expanded = false
+                    scope.launch {
+                        DebugSeedData.seed(db)
+                        onReset()
+                    }
+                },
+                modifier = Modifier.semantics { contentDescription = "Seed sample data" }
+            )
+            DropdownMenuItem(
+                text = { Text("Clear all data") },
+                onClick = {
+                    expanded = false
+                    scope.launch {
+                        DebugSeedData.clear(db)
+                        onReset()
+                    }
+                },
+                modifier = Modifier.semantics { contentDescription = "Clear seed data" }
+            )
         }
     }
 }

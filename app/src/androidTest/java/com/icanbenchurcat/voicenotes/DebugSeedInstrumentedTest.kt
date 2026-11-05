@@ -3,12 +3,17 @@
 package com.icanbenchurcat.voicenotes
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
@@ -52,11 +57,12 @@ class DebugSeedInstrumentedTest {
         composeRule.onNodeWithText("No voice notes yet. Tap Record to capture a thought.")
             .assertIsDisplayed()
 
-        // 1. Tap 'Seed sample data' button
+        // 1. Tap 'Seed sample data' via Developer options overflow menu
+        composeRule.onNodeWithContentDescription("Developer options").performClick()
         composeRule.onNodeWithContentDescription("Seed sample data").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Renovation follow-ups for today")
-                .fetchSemanticsNodes().isNotEmpty()
+            runBlocking { dao.observeAll().first().size == 6 } &&
+                composeRule.onAllNodesWithTag("notes_list").fetchSemanticsNodes().isNotEmpty()
         }
 
         // 2. Verify DB contents cover all 5 default buckets, Tier 1 no-transcript, actions (done & not done), and tags on >= 2 notes
@@ -77,28 +83,31 @@ class DebugSeedInstrumentedTest {
             assertTrue("Expected tags on at least 2 notes, got $notesWithTags", notesWithTags >= 2)
         }
 
-        // 3. Open the TASK note detail screen and verify tags & action items render
-        composeRule.onNodeWithText("Renovation follow-ups for today").assertIsDisplayed()
-        composeRule.onNodeWithText("Renovation follow-ups for today").performClick()
+        // 3. Scroll to and open the TASK note detail screen and verify tags & action items render
+        composeRule.onNodeWithTag("notes_list").performScrollToNode(hasText("Kitchen electrical work"))
+        composeRule.onNodeWithText("Kitchen electrical work").assertIsDisplayed()
+        composeRule.onNodeWithText("Kitchen electrical work").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Call the electrician before noon")
+            composeRule.onAllNodesWithText("Call electrician about kitchen wiring")
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
         composeRule.onNodeWithText("#errands").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("#renovation").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Call the electrician before noon").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Send the updated floor plan PDF to Dana").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Call electrician about kitchen wiring").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Pick up 14-gauge copper wire from Home Depot").performScrollTo().assertIsDisplayed()
 
         // 4. Clear data and re-seed without reinstalling
+        composeRule.onNodeWithContentDescription("Developer options").performClick()
         composeRule.onNodeWithContentDescription("Clear seed data").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
             runBlocking { dao.observeAll().first().isEmpty() }
         }
 
+        composeRule.onNodeWithContentDescription("Developer options").performClick()
         composeRule.onNodeWithContentDescription("Seed sample data").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            runBlocking { dao.observeAll().first().size == 5 }
+            runBlocking { dao.observeAll().first().size == 6 }
         }
     }
 }
