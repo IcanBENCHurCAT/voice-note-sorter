@@ -17,6 +17,16 @@ Data: Room (notes, buckets, actions, tags, FTS) + files (audio)
 Platform: Glance widgets, Quick Settings tile, Live Updates
 ```
 
+## Capture stack
+
+Entry points: FAB one-tap on the main screen, a Quick Settings tile (via `EXTRA_START_RECORDING` intent), and notification actions (pause, resume, stop).
+
+All entry points route through `StartCaptureUseCase`, which launches a foreground `RecordingService`. This service holds a microphone foreground service type, manages a `MediaRecorder` instance (MIC audio source, AAC/MPEG-4 format), and enforces a 4-minute warning and 5-minute hard stop limit.
+
+Audio files are written to an app-private directory (`filesDir/recordings/`) using `AudioFileManager`. They are stored as timestamped `.m4a` files. If a recording is cancelled, the partial file is deleted.
+
+When a recording is stopped, the service persists a new `Note` entity (status `RECORDED`, bucket `INBOX`, tier `CORE`) and enqueues a `SortingWorker` via WorkManager to trigger the sorting pipeline.
+
 ## The sorting pipeline
 
 Five stages, each independently failable and independently tiered:

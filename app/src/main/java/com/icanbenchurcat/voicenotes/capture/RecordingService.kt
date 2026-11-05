@@ -81,20 +81,25 @@ class RecordingService : Service() {
             elapsedSeconds = 0L
             isPaused = false
 
-            recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                MediaRecorder(this)
+            val fixture = fixtureAudioBytesOverride
+            if (fixture != null) {
+                outputFile?.writeBytes(fixture)
             } else {
-                @Suppress("DEPRECATION")
-                MediaRecorder()
-            }.apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(128000)
-                setAudioSamplingRate(44100)
-                setOutputFile(outputFile?.absolutePath)
-                prepare()
-                start()
+                recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    MediaRecorder(this)
+                } else {
+                    @Suppress("DEPRECATION")
+                    MediaRecorder()
+                }.apply {
+                    setAudioSource(MediaRecorder.AudioSource.MIC)
+                    setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                    setAudioEncodingBitRate(128000)
+                    setAudioSamplingRate(44100)
+                    setOutputFile(outputFile?.absolutePath)
+                    prepare()
+                    start()
+                }
             }
 
             val notification = buildNotification(isPaused = false, elapsedSec = 0L, isWarning = false)
@@ -200,13 +205,14 @@ class RecordingService : Service() {
                     noteId = noteId,
                     audioPath = path
                 )
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
             }
         } else {
             _sessionState.value = CaptureSessionState.Idle
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
         }
-
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
     }
 
     private fun handleCancel() {
@@ -374,5 +380,12 @@ class RecordingService : Service() {
 
         private val _sessionState = MutableStateFlow<CaptureSessionState>(CaptureSessionState.Idle)
         val sessionState: StateFlow<CaptureSessionState> = _sessionState.asStateFlow()
+
+        /**
+         * Optional fixture audio bytes for deterministic end-to-end instrumentation tests
+         * so tests do not depend on a live hardware/emulator microphone.
+         */
+        @Volatile
+        var fixtureAudioBytesOverride: ByteArray? = null
     }
 }
