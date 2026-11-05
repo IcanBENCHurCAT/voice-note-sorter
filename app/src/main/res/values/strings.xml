@@ -45,6 +45,10 @@
     <string name="tasks_filter_completed">Completed</string>
     <string name="cd_task_checkbox">Task completion status</string>
     <string name="cd_task_open_note">Open parent note</string>
+    <string name="audio_missing_error">Audio recording not available on device</string>
+    <string name="cd_play_audio">Play original audio</string>
+    <string name="cd_pause_audio">Pause audio</string>
+    <string name="audio_playback_title">Original audio</string>
     <string name="channel_recording_name">Active Recording</string>
     <string name="channel_recording_desc">Controls and status for active voice note recording</string>
     <string name="notif_recording_active_title">Recording note</string>
