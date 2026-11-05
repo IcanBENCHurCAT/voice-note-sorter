@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -164,9 +165,9 @@ class CaptureToFiledLoopE2ETest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeRule.onNodeWithText("Tags: #buy, #call, #remind-me").assertIsDisplayed()
-        composeRule.onNodeWithText("[ ] Remind me to call the electrician tomorrow.", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithText("[ ] Also buy copper wire for the kitchen.", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Tags: #buy, #call, #remind-me").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("[ ] Remind me to call the electrician tomorrow.", substring = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("[ ] Also buy copper wire for the kitchen.", substring = true).performScrollTo().assertIsDisplayed()
 
         // Inspect persisted DB records
         var noteId = 0L
