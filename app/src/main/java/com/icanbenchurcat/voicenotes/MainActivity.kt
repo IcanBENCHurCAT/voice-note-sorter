@@ -64,6 +64,7 @@ import com.icanbenchurcat.voicenotes.ui.ActiveRecordingBanner
 import com.icanbenchurcat.voicenotes.ui.BucketManagementDialog
 import com.icanbenchurcat.voicenotes.ui.CapabilitySettingsUiState
 import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
+import com.icanbenchurcat.voicenotes.ui.NoteShareHelper
 import com.icanbenchurcat.voicenotes.ui.NotesListScreen
 import com.icanbenchurcat.voicenotes.ui.SettingsScreen
 import com.icanbenchurcat.voicenotes.ui.TasksScreen
@@ -395,11 +396,16 @@ class MainActivity : ComponentActivity() {
                                         if (note != null) {
                                             val noteActions by dao.observeActionsFor(note.id).collectAsState(initial = emptyList())
                                             val noteTagsList by dao.observeTagsFor(note.id).collectAsState(initial = emptyList())
+                                            val context = androidx.compose.ui.platform.LocalContext.current
+                                            val hasAudio = remember(note.audioPath) {
+                                                note.audioPath.isNotBlank() && java.io.File(note.audioPath).exists()
+                                            }
                                             NoteDetailScreen(
                                                 note = note,
                                                 actions = noteActions,
                                                 tags = noteTagsList,
                                                 transcriberStatus = transcriberStatus,
+                                                hasAudioFile = hasAudio,
                                                 buckets = buckets,
                                                 onConfirmOrChangeBucket = { bucketKind ->
                                                     scope.launch {
@@ -421,6 +427,32 @@ class MainActivity : ComponentActivity() {
                                                         if (backStack.lastOrNull() == key) {
                                                             backStack.removeLastOrNull()
                                                         }
+                                                    }
+                                                },
+                                                onSaveEdit = { newTitle, newTranscript ->
+                                                    scope.launch {
+                                                        dao.updateTitleAndTranscript(
+                                                            noteId = note.id,
+                                                            title = newTitle,
+                                                            transcript = newTranscript
+                                                        )
+                                                    }
+                                                },
+                                                onShareText = {
+                                                    val chooser = NoteShareHelper.createShareTextIntent(
+                                                        note = note,
+                                                        chooserTitle = context.getString(R.string.share_sheet_title)
+                                                    )
+                                                    context.startActivity(chooser)
+                                                },
+                                                onShareAudio = {
+                                                    val chooser = NoteShareHelper.createShareAudioIntent(
+                                                        context = context,
+                                                        note = note,
+                                                        chooserTitle = context.getString(R.string.share_sheet_title)
+                                                    )
+                                                    if (chooser != null) {
+                                                        context.startActivity(chooser)
                                                     }
                                                 },
                                                 onManageBuckets = { showBucketManagementDialog = true }

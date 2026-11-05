@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
@@ -84,9 +85,9 @@ class DebugSeedInstrumentedTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeRule.onNodeWithText("Tags: #errands, #renovation").assertIsDisplayed()
-        composeRule.onNodeWithText("Call the electrician before noon").assertIsDisplayed()
-        composeRule.onNodeWithText("Send the updated floor plan PDF to Dana").assertIsDisplayed()
+        composeRule.onNodeWithText("Tags: #errands, #renovation").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("[x] Call the electrician before noon").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("[ ] Send the updated floor plan PDF to Dana").performScrollTo().assertIsDisplayed()
 
         // 4. Clear data and re-seed without reinstalling
         composeRule.onNodeWithContentDescription("Clear seed data").performClick()

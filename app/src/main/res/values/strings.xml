@@ -18,6 +18,14 @@
     <string name="dialog_delete_note_message">This permanently deletes the note, its transcript, action items, tags, search index entries, and recorded audio.</string>
     <string name="dialog_delete_confirm">Delete</string>
     <string name="dialog_cancel">Cancel</string>
+    <string name="action_edit_note">Edit</string>
+    <string name="action_save_note">Save</string>
+    <string name="action_cancel_edit">Cancel</string>
+    <string name="action_share_text">Share text</string>
+    <string name="action_share_audio">Share audio</string>
+    <string name="edit_title_label">Title</string>
+    <string name="edit_transcript_label">Transcript</string>
+    <string name="share_sheet_title">Share note</string>
     <string name="action_manage_buckets">Manage buckets</string>
     <string name="dialog_manage_buckets_title">Manage Buckets</string>
     <string name="dialog_rename_bucket_title">Rename Bucket</string>
