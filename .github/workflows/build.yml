@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api-level: [31, 36]
+        api-level: [31, 36, 37]
     steps:
       - uses: actions/checkout@v7
       - name: Enable KVM group permissions
