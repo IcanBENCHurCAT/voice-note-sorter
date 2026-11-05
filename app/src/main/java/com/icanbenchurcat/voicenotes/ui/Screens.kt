@@ -825,7 +825,6 @@ fun NoteDetailScreen(
                         .semantics { contentDescription = pipelineDesc }
                 )
             }
-            }
         }
         AudioPlaybackControl(
             audioPlaybackState = audioPlaybackState,
