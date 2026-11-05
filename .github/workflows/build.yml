@@ -36,7 +36,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api-level: [31, 36, 37]
+        include:
+          - api-level: 31
+            target: aosp_atd
+          - api-level: 36
+            target: aosp_atd
+          # Android 17 is a minor-versioned SDK: the platform package is
+          # 'platforms;android-37.0' (a plain 'android-37' package does not
+          # exist; sdkmanager fails with "Failed to find package"), and no
+          # aosp_atd system image is published for 37.0, so this leg uses
+          # the google_apis image instead.
+          - api-level: '37.0'
+            target: google_apis
     steps:
       - uses: actions/checkout@v7
       - name: Enable KVM group permissions
@@ -57,7 +68,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
-          target: aosp_atd
+          target: ${{ matrix.target }}
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
