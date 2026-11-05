@@ -18,6 +18,14 @@
     <string name="dialog_delete_note_message">This permanently deletes the note, its transcript, action items, tags, search index entries, and recorded audio.</string>
     <string name="dialog_delete_confirm">Delete</string>
     <string name="dialog_cancel">Cancel</string>
+    <string name="action_edit_note">Edit</string>
+    <string name="action_save_note">Save</string>
+    <string name="action_cancel_edit">Cancel</string>
+    <string name="action_share_text">Share text</string>
+    <string name="action_share_audio">Share audio</string>
+    <string name="edit_title_label">Title</string>
+    <string name="edit_transcript_label">Transcript</string>
+    <string name="share_sheet_title">Share note</string>
     <string name="action_manage_buckets">Manage buckets</string>
     <string name="dialog_manage_buckets_title">Manage Buckets</string>
     <string name="dialog_rename_bucket_title">Rename Bucket</string>
@@ -62,6 +70,10 @@
     <string name="status_busy">Busy</string>
     <string name="status_unavailable">Unavailable</string>
     <string name="action_refresh_capabilities">Re-check capabilities</string>
+    <string name="audio_missing_error">Audio recording not available on device</string>
+    <string name="cd_play_audio">Play original audio</string>
+    <string name="cd_pause_audio">Pause audio</string>
+    <string name="audio_playback_title">Original audio</string>
     <string name="channel_recording_name">Active Recording</string>
     <string name="channel_recording_desc">Controls and status for active voice note recording</string>
     <string name="notif_recording_active_title">Recording note</string>

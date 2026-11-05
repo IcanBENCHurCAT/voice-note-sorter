@@ -57,6 +57,11 @@ import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LinearProgressIndicator
+import com.icanbenchurcat.voicenotes.audio.AudioPlaybackState
+import com.icanbenchurcat.voicenotes.audio.PlaybackStatus
+import com.icanbenchurcat.voicenotes.audio.rememberAudioPlayerState
 
 /** Notes list: filed cards, newest first. The bucket chip and the tier
  *  marker are shown on purpose - the demo value of this app is that the
@@ -449,8 +454,16 @@ fun NoteDetailScreen(
     onConfirmOrChangeBucket: (String) -> Unit = {},
     onToggleActionDone: ((Long, Boolean) -> Unit)? = null,
     onDeleteNote: () -> Unit = {},
+    audioPlaybackState: AudioPlaybackState = rememberAudioPlayerState(note.audioPath),
+    onSaveEdit: (title: String, transcript: String) -> Unit = { _, _ -> },
+    onShareText: () -> Unit = {},
+    onShareAudio: () -> Unit = {},
+    hasAudioFile: Boolean = false,
     onManageBuckets: (() -> Unit)? = null
 ) {
+    var isEditing by rememberSaveable { mutableStateOf(false) }
+    var editTitle by rememberSaveable(note.id, isEditing) { mutableStateOf(note.title) }
+    var editTranscript by rememberSaveable(note.id, isEditing) { mutableStateOf(note.transcript) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     if (showDeleteConfirmDialog) {
@@ -487,6 +500,59 @@ fun NoteDetailScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
+        if (isEditing) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        isEditing = false
+                        editTitle = note.title
+                        editTranscript = note.transcript
+                    },
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .semantics { contentDescription = "Cancel editing note" }
+                ) {
+                    Text(stringResource(R.string.action_cancel_edit))
+                }
+                OutlinedButton(
+                    onClick = {
+                        isEditing = false
+                        onSaveEdit(editTitle, editTranscript)
+                    },
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .semantics { contentDescription = "Save edited note" }
+                ) {
+                    Text(stringResource(R.string.action_save_note))
+                }
+            }
+
+            OutlinedTextField(
+                value = editTitle,
+                onValueChange = { editTitle = it },
+                label = { Text(stringResource(R.string.edit_title_label)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .semantics { contentDescription = "Edit title input" }
+            )
+
+            OutlinedTextField(
+                value = editTranscript,
+                onValueChange = { editTranscript = it },
+                label = { Text(stringResource(R.string.edit_transcript_label)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .weight(1f, fill = false)
+                    .semantics { contentDescription = "Edit transcript input" },
+                minLines = 4
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -498,6 +564,18 @@ fun NoteDetailScreen(
                 modifier = Modifier.weight(1f, fill = false)
             )
             OutlinedButton(
+                onClick = {
+                    editTitle = note.title
+                    editTranscript = note.transcript
+                    isEditing = true
+                },
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .semantics { contentDescription = "Edit note" }
+            ) {
+                Text(stringResource(R.string.action_edit_note))
+            }
+            OutlinedButton(
                 onClick = { showDeleteConfirmDialog = true },
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                 modifier = Modifier
@@ -507,6 +585,29 @@ fun NoteDetailScreen(
                 Text(stringResource(R.string.action_delete_note))
             }
         }
+            FlowRow(
+                modifier = Modifier.padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onShareText,
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .semantics { contentDescription = "Share note text" }
+                ) {
+                    Text(stringResource(R.string.action_share_text))
+                }
+                if (hasAudioFile) {
+                    OutlinedButton(
+                        onClick = onShareAudio,
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .semantics { contentDescription = "Share note audio" }
+                    ) {
+                        Text(stringResource(R.string.action_share_audio))
+                    }
+                }
+            }
         val effectiveBuckets = remember(availableBuckets, buckets) {
             if (buckets.isNotEmpty()) {
                 buckets.map { it.kind to it.name }
@@ -652,6 +753,12 @@ fun NoteDetailScreen(
                 }
             }
         }
+        if (hasAudioFile) {
+            AudioPlaybackControl(
+                audioPlaybackState = audioPlaybackState,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        }
         if (note.stageStatus.isNotBlank()) {
             val stages = remember(note.stageStatus) {
                 NoteCardFormatting.formatPipelineStages(note.stageStatus)
@@ -693,6 +800,84 @@ fun NoteDetailScreen(
                         ),
                         border = null
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AudioPlaybackControl(
+    audioPlaybackState: AudioPlaybackState,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.audio_playback_title),
+                style = MaterialTheme.typography.titleSmall
+            )
+
+            if (!audioPlaybackState.isFileAvailable || audioPlaybackState.errorMessage != null) {
+                Text(
+                    text = audioPlaybackState.errorMessage ?: stringResource(R.string.audio_missing_error),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val isPlaying = audioPlaybackState.status == PlaybackStatus.PLAYING
+                    val playPauseDesc = if (isPlaying) {
+                        stringResource(R.string.cd_pause_audio)
+                    } else {
+                        stringResource(R.string.cd_play_audio)
+                    }
+
+                    FilledTonalButton(
+                        onClick = { audioPlaybackState.togglePlayPause() },
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .semantics { contentDescription = playPauseDesc }
+                    ) {
+                        Text(if (isPlaying) "Pause" else "Play")
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        LinearProgressIndicator(
+                            progress = { audioPlaybackState.progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = audioPlaybackState.elapsedFormatted,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                text = audioPlaybackState.durationFormatted,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
                 }
             }
         }
