@@ -67,11 +67,12 @@ bucket set and rules without forking the pipeline.
 
 Implemented today, in the `ai/` package:
 
-- `Transcriber`, `Summarizer`, `ActionExtractor`, `Bucketer` - the
+- `Transcriber`, `Summarizer`, `ActionExtractor`, `Bucketer`, `Embedder` - the
   capability interfaces; alternative engines can be supplied by an outer
-  module at build time
+  module at build time. Note that there is no vector store and no embeddings are persisted; search falls back to FTS.
 - `BucketProfileProvider` - supplies bucket sets and filing rules. This
   is the only downstream seam in use today.
+- `SearchRepository` - interface for performing searches.
 
 Defined in the concept spec (Section 10), not yet implemented:
 `ExtensionRegistry`, `EntitlementProvider`, `FeatureGate`,
