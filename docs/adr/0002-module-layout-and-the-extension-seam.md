@@ -12,7 +12,7 @@ the first commit."
 The scaffold that actually shipped is a single `:app` module. The
 extension seam is real but package-level: the interfaces in
 `app/.../ai/` (`Transcriber`, `Summarizer`, `ActionExtractor`,
-`Bucketer`, `BucketProfileProvider`), of which `BucketProfileProvider`
+`Bucketer`, `BucketProfileProvider`, `Embedder`) and `app/.../data/` (`SearchRepository`). `BucketProfileProvider`
 is the only downstream seam in use today. ADR 0001 requires a change to
 a recorded decision to be made by a new ADR written before the change;
 the divergence happened without one. This ADR records it, per
