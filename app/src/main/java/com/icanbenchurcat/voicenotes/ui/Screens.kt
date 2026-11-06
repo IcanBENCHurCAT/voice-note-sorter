@@ -27,6 +27,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -658,6 +659,13 @@ fun NoteDetailScreen(
                                 Text(bucketName)
                             }
                         },
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = isSelected,
+                            // M3's default outlineVariant is ~1.5:1 on the background;
+                            // `outline` keeps unselected pills at >= 3:1 (WCAG 1.4.11).
+                            borderColor = MaterialTheme.colorScheme.outline
+                        ),
                         modifier = Modifier
                             .defaultMinSize(minHeight = 48.dp)
                             .semantics {
