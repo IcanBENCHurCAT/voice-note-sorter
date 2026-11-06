@@ -6,6 +6,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.unit.dp
+
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
@@ -59,5 +62,11 @@ class NoteDetailVisualCraftTest {
         composeTestRule.onNodeWithText("Transcribe: OK").assertIsDisplayed()
         composeTestRule.onNodeWithText("Bucket: OK").assertIsDisplayed()
         composeTestRule.onNodeWithText("Actions: OK").assertIsDisplayed()
+
+        // Assert 48dp minimum touch targets
+        composeTestRule.onNodeWithText("Tasks (Suggested)").assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithText("#hardware").assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription("Edit note").assertHeightIsAtLeast(48.dp)
+
     }
 }

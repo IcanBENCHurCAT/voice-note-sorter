@@ -531,7 +531,7 @@ fun NoteDetailScreen(
                             isEditing = true
                         },
                         modifier = Modifier
-                            .defaultMinSize(minHeight = 40.dp)
+                            .defaultMinSize(minHeight = 48.dp)
                             .semantics { contentDescription = "Edit note" }
                     ) {
                         Text(stringResource(R.string.action_edit_note))
@@ -657,7 +657,9 @@ fun NoteDetailScreen(
                                 Text(bucketName)
                             }
                         },
-                        modifier = Modifier.semantics {
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .semantics {
                             contentDescription = if (isFiledBucket && isNeedsReview) {
                                 "Suggested bucket $bucketName, tap to confirm filing"
                             } else {
@@ -700,7 +702,8 @@ fun NoteDetailScreen(
                             containerColor = MaterialTheme.colorScheme.primaryContainer,
                             labelColor = MaterialTheme.colorScheme.onPrimaryContainer
                         ),
-                        border = null
+                        border = null,
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                     )
                 }
             }
@@ -820,7 +823,8 @@ fun NoteDetailScreen(
                             containerColor = containerColor,
                             labelColor = labelColor
                         ),
-                        border = null
+                        border = null,
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                     )
                 }
             }
