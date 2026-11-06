@@ -5,6 +5,8 @@ package com.icanbenchurcat.voicenotes
 import android.Manifest
 import android.os.Build
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -160,14 +162,16 @@ class CaptureToFiledLoopE2ETest {
         // Open the note detail view to verify tags and action items in the UI
         composeRule.onNodeWithText(expectedTitle).performClick()
 
+        val detailScope = hasAnyAncestor(hasTestTag("note_detail_content"))
+
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodes(hasText("#buy"))
+            composeRule.onAllNodes(hasText("#buy") and detailScope)
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeRule.onNodeWithText("#buy").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("#call").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("#remind-me").performScrollTo().assertIsDisplayed()
+        composeRule.onNode(hasText("#buy") and detailScope).performScrollTo().assertIsDisplayed()
+        composeRule.onNode(hasText("#call") and detailScope).performScrollTo().assertIsDisplayed()
+        composeRule.onNode(hasText("#remind-me") and detailScope).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Remind me to call the electrician tomorrow.").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Also buy copper wire for the kitchen.").performScrollTo().assertIsDisplayed()
 

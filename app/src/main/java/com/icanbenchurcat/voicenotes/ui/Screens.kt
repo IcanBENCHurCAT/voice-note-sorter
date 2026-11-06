@@ -555,6 +555,7 @@ fun NoteDetailScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
+                .testTag("note_detail_content")
         ) {
         if (isEditing) {
             Row(
@@ -688,7 +689,9 @@ fun NoteDetailScreen(
         }
         if (tags.isNotEmpty()) {
             FlowRow(
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .testTag("note_detail_tags"),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
