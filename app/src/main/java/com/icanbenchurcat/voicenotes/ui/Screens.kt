@@ -726,8 +726,13 @@ fun NoteDetailScreen(
                 modifier = Modifier.padding(top = 16.dp)
             )
         } else {
+            val emptyCopy = if (hasAudioFile) {
+                "No transcript yet. Playback is available; this note was filed by hand (Tier 1)."
+            } else {
+                "No transcript yet. This note was filed by hand (Tier 1)."
+            }
             Text(
-                text = "No transcript yet. Playback is available; this note was filed by hand (Tier 1).",
+                text = emptyCopy,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 16.dp)
             )
@@ -789,7 +794,7 @@ fun NoteDetailScreen(
                 }
             }
         }
-        if (hasAudioFile) {
+        if (hasAudioFile || note.audioPath.isNotBlank()) {
             AudioPlaybackControl(
                 audioPlaybackState = audioPlaybackState,
                 modifier = Modifier.padding(top = 16.dp)
