@@ -45,6 +45,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
@@ -777,7 +778,9 @@ fun NoteDetailScreen(
                     ) {
                         Text(
                             text = item.text,
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium,
+                            textDecoration = if (item.done) TextDecoration.LineThrough else null,
+                            color = if (item.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                         )
                         if (item.dueAtEpochMs != null && item.dueAtEpochMs > 0L) {
                             val formattedDue = NoteCardFormatting.formatDueDate(item.dueAtEpochMs)

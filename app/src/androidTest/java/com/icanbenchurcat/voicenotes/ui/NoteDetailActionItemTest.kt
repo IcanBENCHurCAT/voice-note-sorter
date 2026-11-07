@@ -69,4 +69,47 @@ class NoteDetailActionItemTest {
         assertEquals(42L, toggledId)
         assertEquals(true, toggledDone)
     }
+
+    @Test
+    fun actionItem_whenDone_displaysCompletedItemAndCheckbox() {
+        val note = Note(
+            id = 2L,
+            createdAtEpochMs = 2000L,
+            audioPath = "/fake/2.m4a",
+            title = "Completed action note",
+            transcript = "Transcript discussing client contract details",
+            bucketKind = "TASK",
+            status = NoteStatus.SORTED.name
+        )
+        val action = ActionItem(
+            id = 43L,
+            noteId = 2L,
+            text = "Review proposal and submit invoice",
+            dueAtEpochMs = null,
+            done = true
+        )
+
+        var toggledId: Long? = null
+        var toggledDone: Boolean? = null
+
+        composeTestRule.setContent {
+            NoteDetailScreen(
+                note = note,
+                actions = listOf(action),
+                onToggleActionDone = { id, done ->
+                    toggledId = id
+                    toggledDone = done
+                }
+            )
+        }
+
+        // Verify completed action item text and checkbox are rendered and interactive
+        composeTestRule.onNodeWithText("Review proposal and submit invoice").assertIsDisplayed()
+        val checkboxNode = composeTestRule.onNodeWithContentDescription("Toggle action item: Review proposal and submit invoice")
+        checkboxNode.assertIsDisplayed()
+        checkboxNode.performClick()
+
+        assertEquals(43L, toggledId)
+        assertEquals(false, toggledDone)
+    }
 }
