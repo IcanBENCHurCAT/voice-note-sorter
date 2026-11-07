@@ -77,7 +77,7 @@ class NoteDetailActionItemTest {
             createdAtEpochMs = 2000L,
             audioPath = "/fake/2.m4a",
             title = "Completed action note",
-            transcript = "Review proposal and submit invoice",
+            transcript = "Transcript discussing client contract details",
             bucketKind = "TASK",
             status = NoteStatus.SORTED.name
         )
