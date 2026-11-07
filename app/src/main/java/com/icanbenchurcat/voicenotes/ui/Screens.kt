@@ -372,19 +372,10 @@ fun NotesListScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            SuggestionChip(
-                                onClick = {},
-                                label = {
-                                    Text(
-                                        text = "${note.bucketKind} · ${note.tierUsed}",
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                },
-                                colors = SuggestionChipDefaults.suggestionChipColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                ),
-                                border = null,
+                            Text(
+                                text = note.bucketKind,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.semantics { contentDescription = metaDesc }
                             )
 
@@ -427,6 +418,9 @@ fun NotesListScreen(
                         }
 
                         if (noteTagList.isNotEmpty()) {
+                            val (visibleTags, overflowCount) = remember(noteTagList) {
+                                NoteCardFormatting.collapseTags(noteTagList, maxVisible = 3)
+                            }
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
                                 modifier = Modifier
@@ -435,11 +429,19 @@ fun NotesListScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                noteTagList.forEach { tag ->
+                                visibleTags.forEach { tag ->
                                     Text(
                                         text = "#$tag",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(end = 4.dp)
+                                    )
+                                }
+                                if (overflowCount > 0) {
+                                    Text(
+                                        text = "+$overflowCount",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline,
                                         modifier = Modifier.padding(end = 4.dp)
                                     )
                                 }
