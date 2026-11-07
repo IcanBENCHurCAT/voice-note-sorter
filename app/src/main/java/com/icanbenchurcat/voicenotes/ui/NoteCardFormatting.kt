@@ -89,4 +89,16 @@ object NoteCardFormatting {
             }
         }
     }
+
+    /**
+     * Collapses a list of tags if its size exceeds [maxVisible], returning the visible tags
+     * (up to [maxVisible]) and the count of collapsed overflow tags.
+     */
+    fun collapseTags(tags: List<String>, maxVisible: Int = 3): Pair<List<String>, Int> {
+        return if (tags.size > maxVisible) {
+            Pair(tags.take(maxVisible), tags.size - maxVisible)
+        } else {
+            Pair(tags, 0)
+        }
+    }
 }
