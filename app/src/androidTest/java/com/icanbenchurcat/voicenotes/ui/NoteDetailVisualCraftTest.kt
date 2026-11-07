@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.unit.dp
 
@@ -14,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.icanbenchurcat.voicenotes.data.Bucket
@@ -73,7 +75,111 @@ class NoteDetailVisualCraftTest {
         composeTestRule.onNodeWithText("Tasks (Suggested)").assertHeightIsAtLeast(48.dp)
         composeTestRule.onNodeWithText("#hardware").assertHeightIsAtLeast(48.dp)
         composeTestRule.onNodeWithContentDescription("Edit note").assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription("Share note").assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription("More options").assertHeightIsAtLeast(48.dp)
 
+    }
+
+    @Test
+    fun noteDetail_topBarActions_shareAndOverflowDelete() {
+        val note = Note(
+            id = 20L,
+            createdAtEpochMs = 1000L,
+            audioPath = "/fake/20.m4a",
+            title = "Top bar actions note",
+            transcript = "Testing share and delete",
+            bucketKind = "TASK",
+            tierUsed = "CORE",
+            stageStatus = "",
+            status = NoteStatus.SORTED.name
+        )
+        var sharedText = false
+        var sharedAudio = false
+        var deletedNote = false
+
+        composeTestRule.setContent {
+            NoteDetailScreen(
+                note = note,
+                hasAudioFile = true,
+                onShareText = { sharedText = true },
+                onShareAudio = { sharedAudio = true },
+                onDeleteNote = { deletedNote = true }
+            )
+        }
+
+        // Top bar Share icon action
+        composeTestRule.onNodeWithContentDescription("Share note").assertIsDisplayed().performClick()
+        // Dropdown displays Share text and Share audio options
+        composeTestRule.onNodeWithText("Share text").assertIsDisplayed().performClick()
+        assertTrue("Share text callback should be invoked", sharedText)
+
+        // Overflow menu for Delete
+        composeTestRule.onNodeWithContentDescription("More options").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithText("Delete note").assertIsDisplayed().performClick()
+
+        // Confirmation dialog is shown
+        composeTestRule.onNodeWithText("Delete note?").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Confirm delete note").performClick()
+        assertTrue("onDeleteNote callback should be invoked", deletedNote)
+    }
+
+    @Test
+    fun noteDetail_shareIcon_withoutAudio_invokesShareTextDirectly() {
+        val note = Note(
+            id = 21L,
+            createdAtEpochMs = 1000L,
+            audioPath = "",
+            title = "Text only note",
+            transcript = "Only text here",
+            bucketKind = "NOTE",
+            tierUsed = "CORE",
+            stageStatus = "",
+            status = NoteStatus.SORTED.name
+        )
+        var sharedText = false
+
+        composeTestRule.setContent {
+            NoteDetailScreen(
+                note = note,
+                hasAudioFile = false,
+                onShareText = { sharedText = true }
+            )
+        }
+
+        // Tapping Share note directly shares text when no audio file exists
+        composeTestRule.onNodeWithContentDescription("Share note").assertIsDisplayed().performClick()
+        assertTrue("Share text callback should be invoked directly", sharedText)
+    }
+
+    @Test
+    fun noteDetail_needsReview_prominentConfirmFilingAction() {
+        val note = Note(
+            id = 22L,
+            createdAtEpochMs = 1000L,
+            audioPath = "",
+            title = "Review note",
+            transcript = "Needs confirmation",
+            bucketKind = "TASK",
+            tierUsed = "CORE",
+            stageStatus = "",
+            status = NoteStatus.NEEDS_REVIEW.name
+        )
+        var confirmedBucket: String? = null
+
+        composeTestRule.setContent {
+            NoteDetailScreen(
+                note = note,
+                onConfirmOrChangeBucket = { confirmedBucket = it }
+            )
+        }
+
+        // The single prominent "Confirm filing" action
+        composeTestRule.onNodeWithContentDescription("Confirm bucket filing")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+            .performClick()
+
+        assertEquals("TASK", confirmedBucket)
     }
 
     @Test
