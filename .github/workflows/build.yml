@@ -47,15 +47,12 @@ jobs:
             emulator-boot-timeout: 600
           # Android 17 is a minor-versioned SDK: the platform package is
           # 'platforms;android-37.0' (a plain 'android-37' package does not
-          # exist; sdkmanager fails with "Failed to find package"), and no
-          # aosp_atd system image is published for 37.0. This leg runs the
-          # google_apis_ps16k image, the API 37 image with verified headless
-          # CI boots, with more cores and a longer boot timeout: the plain
-          # google_apis image never finished booting inside 600s here.
+          # exist; sdkmanager fails with "Failed to find package").
+          # Run the lightweight headless aosp_atd system image for 37.0.
           - api-level: '37.0'
-            target: google_apis_ps16k
-            cores: 4
-            emulator-boot-timeout: 900
+            target: aosp_atd
+            cores: 2
+            emulator-boot-timeout: 600
     steps:
       - uses: actions/checkout@v7
       - name: Enable KVM group permissions
