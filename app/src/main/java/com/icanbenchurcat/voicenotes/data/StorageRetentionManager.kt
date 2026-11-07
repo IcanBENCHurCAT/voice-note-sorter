@@ -33,6 +33,16 @@ class StorageRetentionManager(
         preferences[PREF_AUTO_DELETE_OLD_AUDIO] ?: false
     }
 
+    val isDeveloperModeEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
+        preferences[PREF_DEVELOPER_MODE] ?: false
+    }
+
+    suspend fun setDeveloperModeEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PREF_DEVELOPER_MODE] = enabled
+        }
+    }
+
     suspend fun setAutoDeleteOldAudioEnabled(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[PREF_AUTO_DELETE_OLD_AUDIO] = enabled
@@ -142,6 +152,7 @@ class StorageRetentionManager(
 
     companion object {
         val PREF_AUTO_DELETE_OLD_AUDIO = booleanPreferencesKey("auto_delete_old_audio_90_days")
+        val PREF_DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
         const val NINETY_DAYS_MS = 90L * 24 * 60 * 60 * 1000L // 7,776,000,000 ms
 
         @Volatile

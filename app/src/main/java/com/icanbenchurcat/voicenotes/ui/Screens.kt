@@ -16,10 +16,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -294,20 +298,51 @@ fun NotesListScreen(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (isSearching) {
-                        stringResource(R.string.search_no_matches)
-                    } else if (filterNeedsReviewOnly) {
-                        "No notes need review."
-                    } else if (selectedBucketKind != null) {
-                        "No notes in this bucket."
-                    } else if (selectedTag != null) {
-                        "No notes with tag #$selectedTag."
-                    } else {
-                        "No notes found."
-                    },
-                    style = MaterialTheme.typography.bodyLarge
-                )
+                if (filterNeedsReviewOnly && !isSearching) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_check_circle),
+                            contentDescription = stringResource(R.string.empty_needs_review_title),
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = stringResource(R.string.empty_needs_review_title),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = stringResource(R.string.empty_needs_review_subtitle),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = { filterNeedsReviewOnly = false },
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.action_view_all_notes))
+                        }
+                    }
+                } else {
+                    Text(
+                        text = if (isSearching) {
+                            stringResource(R.string.search_no_matches)
+                        } else if (selectedBucketKind != null) {
+                            "No notes in this bucket."
+                        } else if (selectedTag != null) {
+                            "No notes with tag #$selectedTag."
+                        } else {
+                            "No notes found."
+                        },
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                }
             }
             return
         }
