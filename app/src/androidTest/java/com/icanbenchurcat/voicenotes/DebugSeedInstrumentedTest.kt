@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
+import com.icanbenchurcat.voicenotes.data.StorageRetentionManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -37,6 +38,9 @@ class DebugSeedInstrumentedTest {
     fun setUp() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         AppDatabase.get(context).clearAllTables()
+        runBlocking {
+            StorageRetentionManager.fromContext(context).setDeveloperModeEnabled(true)
+        }
     }
 
     @After
