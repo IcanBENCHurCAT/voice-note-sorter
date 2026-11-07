@@ -58,7 +58,8 @@ data class CapabilitySettingsUiState(
     val actionExtractorStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     val isLoading: Boolean = false,
     val storageStats: StorageStats = StorageStats(0L, 0L, 0),
-    val isAutoDeleteOldAudioEnabled: Boolean = false
+    val isAutoDeleteOldAudioEnabled: Boolean = false,
+    val isDeveloperModeEnabled: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,7 +68,8 @@ fun SettingsScreen(
     uiState: CapabilitySettingsUiState,
     onBack: () -> Unit,
     onRefreshProbe: () -> Unit = {},
-    onToggleAutoDeleteOldAudio: (Boolean) -> Unit = {}
+    onToggleAutoDeleteOldAudio: (Boolean) -> Unit = {},
+    onToggleDeveloperMode: (Boolean) -> Unit = {}
 ) {
     var showEnableRetentionDialog by remember { mutableStateOf(false) }
 
@@ -195,8 +197,67 @@ fun SettingsScreen(
                         }
                     }
                 )
+            }
+
+            item {
+                Text(
+                    text = stringResource(R.string.settings_developer_mode_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                )
+            }
+
+            item {
+                DeveloperModeCard(
+                    isDeveloperModeEnabled = uiState.isDeveloperModeEnabled,
+                    onToggleDeveloperMode = onToggleDeveloperMode
+                )
                 Spacer(modifier = Modifier.height(24.dp))
             }
+        }
+    }
+}
+
+@Composable
+fun DeveloperModeCard(
+    isDeveloperModeEnabled: Boolean,
+    onToggleDeveloperMode: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                Text(
+                    text = stringResource(R.string.settings_developer_mode_title),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.settings_developer_mode_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Switch(
+                checked = isDeveloperModeEnabled,
+                onCheckedChange = onToggleDeveloperMode,
+                modifier = Modifier.semantics {
+                    contentDescription = "Toggle developer mode"
+                }
+            )
         }
     }
 }

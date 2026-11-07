@@ -224,6 +224,7 @@ class MainActivity : ComponentActivity() {
                 var isProbingCapabilities by remember { mutableStateOf(false) }
                 var storageStats by remember { mutableStateOf(StorageStats(0L, 0L, 0)) }
                 val isAutoDeleteOldAudioEnabled by storageManager.isAutoDeleteOldAudioEnabled.collectAsState(initial = false)
+                val isDeveloperModeEnabled by storageManager.isDeveloperModeEnabled.collectAsState(initial = false)
                 val scope = rememberCoroutineScope()
 
                 fun refreshStorageStats() {
@@ -304,14 +305,16 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        DebugSeedToolbar(
-                            db = db,
-                            onReset = {
-                                while (backStack.size > 1) {
-                                    backStack.removeLastOrNull()
+                        if (isDeveloperModeEnabled) {
+                            DebugSeedToolbar(
+                                db = db,
+                                onReset = {
+                                    while (backStack.size > 1) {
+                                        backStack.removeLastOrNull()
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
 
                         // Top tab navigation for root destinations
                         val currentDestination = backStack.lastOrNull()
@@ -385,7 +388,8 @@ class MainActivity : ComponentActivity() {
                                                 actionExtractorStatus = actionExtractorStatus,
                                                 isLoading = isProbingCapabilities,
                                                 storageStats = storageStats,
-                                                isAutoDeleteOldAudioEnabled = isAutoDeleteOldAudioEnabled
+                                                isAutoDeleteOldAudioEnabled = isAutoDeleteOldAudioEnabled,
+                                                isDeveloperModeEnabled = isDeveloperModeEnabled
                                             ),
                                             onBack = { backStack.removeLastOrNull() },
                                             onRefreshProbe = {
@@ -402,6 +406,11 @@ class MainActivity : ComponentActivity() {
                                                         storageManager.runRetentionPolicyIfEnabled()
                                                         refreshStorageStats()
                                                     }
+                                                }
+                                            },
+                                            onToggleDeveloperMode = { enabled ->
+                                                scope.launch {
+                                                    storageManager.setDeveloperModeEnabled(enabled)
                                                 }
                                             }
                                         )

@@ -190,4 +190,40 @@ class NotesListFilterAndMetadataTest {
         // Collapsed indicator "+2" is displayed
         composeTestRule.onNodeWithText("+2").assertIsDisplayed()
     }
+
+    @Test
+    fun emptyState_clearedNeedsReview_showsAllCaughtUpAndSwitchToAll() {
+        val note = Note(
+            id = 1L,
+            createdAtEpochMs = 1000L,
+            audioPath = "/fake/1.m4a",
+            title = "Sorted Note",
+            summary = "Summary of sorted note",
+            bucketKind = "TASK",
+            status = NoteStatus.SORTED.name
+        )
+
+        composeTestRule.setContent {
+            NotesListScreen(
+                notes = listOf(note),
+                onOpen = {}
+            )
+        }
+
+        // Initially sorted note is visible
+        composeTestRule.onNodeWithText("Sorted Note").assertIsDisplayed()
+
+        // Filter by Needs review
+        composeTestRule.onNodeWithContentDescription("Filter Needs Review notes").performClick()
+
+        // 0 notes in Needs review -> "All caught up" headline, graphic, and "View all notes" button
+        composeTestRule.onNodeWithText("All caught up").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("All caught up").assertIsDisplayed()
+        composeTestRule.onNodeWithText("No notes need review right now.").assertIsDisplayed()
+        composeTestRule.onNodeWithText("View all notes").assertIsDisplayed()
+
+        // Clicking "View all notes" resets the filter and shows notes
+        composeTestRule.onNodeWithText("View all notes").performClick()
+        composeTestRule.onNodeWithText("Sorted Note").assertIsDisplayed()
+    }
 }

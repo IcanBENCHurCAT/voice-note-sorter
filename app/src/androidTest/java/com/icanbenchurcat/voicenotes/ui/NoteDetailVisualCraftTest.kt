@@ -123,6 +123,35 @@ class NoteDetailVisualCraftTest {
         assertTrue("Outline contrast ${contrast(outline, background)} < 3.0", contrast(outline, background) >= 3.0)
     }
 
+    @Test
+    fun noteDetail_whenAudioFileMissing_surfacesPlaybackCardInErrorState() {
+        val note = Note(
+            id = 12L,
+            createdAtEpochMs = 1000L,
+            audioPath = "/missing/audio_file.m4a",
+            title = "Missing audio note",
+            transcript = "Transcript content",
+            bucketKind = "IDEA",
+            tierUsed = "CORE",
+            stageStatus = "",
+            status = NoteStatus.SORTED.name
+        )
+
+        composeTestRule.setContent {
+            NoteDetailScreen(
+                note = note,
+                buckets = listOf(Bucket("IDEA", "Ideas")),
+                hasAudioFile = false,
+                onConfirmOrChangeBucket = {}
+            )
+        }
+
+        // Playback card header is surfaced
+        composeTestRule.onNodeWithText("Original audio").assertIsDisplayed()
+        // Error message indicating audio recording is unavailable on device is surfaced
+        composeTestRule.onNodeWithText("Audio recording not available on device").assertIsDisplayed()
+    }
+
     private fun contrast(a: Color, b: Color): Double {
         val l1 = a.luminance().toDouble()
         val l2 = b.luminance().toDouble()
