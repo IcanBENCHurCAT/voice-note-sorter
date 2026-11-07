@@ -97,4 +97,9 @@
     <string name="dialog_enable_retention_title">Enable 90-day audio auto-delete?</string>
     <string name="dialog_enable_retention_message">Original audio recordings older than 90 days will be permanently deleted from local device storage to free space. Your transcripts, summaries, tags, and action items will remain intact forever.</string>
     <string name="action_enable">Enable</string>
+    <string name="empty_needs_review_title">All caught up</string>
+    <string name="empty_needs_review_subtitle">No notes need review right now.</string>
+    <string name="action_view_all_notes">View all notes</string>
+    <string name="settings_developer_mode_title">Developer options</string>
+    <string name="settings_developer_mode_subtitle">Show database seeding and reset controls on the home screen</string>
 </resources>
