@@ -146,5 +146,48 @@ class NotesListFilterAndMetadataTest {
         composeTestRule.onNodeWithText("1m ago").assertIsDisplayed()
         composeTestRule.onNodeWithText("Tasks 1/2").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Filter by tag launch").assertIsDisplayed()
+        composeTestRule.onNodeWithText("TASK").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Filed as TASK, CORE").assertIsDisplayed()
+    }
+
+    @Test
+    fun noteCard_withMoreThanThreeTags_showsCollapsedPlusIndicator() {
+        val note = Note(
+            id = 1L,
+            createdAtEpochMs = 1000L,
+            audioPath = "/fake/1.m4a",
+            title = "Tag Overflow Note",
+            summary = "Testing hashtag collapsing",
+            bucketKind = "IDEA",
+            tierUsed = "CORE",
+            status = NoteStatus.SORTED.name
+        )
+        val noteTags = listOf(
+            NoteTag(noteId = 1L, tagName = "t1"),
+            NoteTag(noteId = 1L, tagName = "t2"),
+            NoteTag(noteId = 1L, tagName = "t3"),
+            NoteTag(noteId = 1L, tagName = "t4"),
+            NoteTag(noteId = 1L, tagName = "t5")
+        )
+
+        composeTestRule.setContent {
+            NotesListScreen(
+                notes = listOf(note),
+                noteTags = noteTags,
+                onOpen = {}
+            )
+        }
+
+        // First 3 tags are displayed
+        composeTestRule.onNodeWithText("#t1").assertIsDisplayed()
+        composeTestRule.onNodeWithText("#t2").assertIsDisplayed()
+        composeTestRule.onNodeWithText("#t3").assertIsDisplayed()
+
+        // Remaining tags are collapsed
+        composeTestRule.onNodeWithText("#t4").assertDoesNotExist()
+        composeTestRule.onNodeWithText("#t5").assertDoesNotExist()
+
+        // Collapsed indicator "+2" is displayed
+        composeTestRule.onNodeWithText("+2").assertIsDisplayed()
     }
 }

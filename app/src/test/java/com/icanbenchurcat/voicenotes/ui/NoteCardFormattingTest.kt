@@ -62,4 +62,34 @@ class NoteCardFormattingTest {
         assertEquals(Pair("Actions", "OK"), stages[2])
         assertEquals(Pair("Bucket", "OK"), stages[3])
     }
+
+    @Test
+    fun collapseTags_lessThanOrEqualToMax_returnsAllTagsAndZeroOverflow() {
+        val (emptyTags, emptyOverflow) = NoteCardFormatting.collapseTags(emptyList(), maxVisible = 3)
+        assertEquals(emptyList<String>(), emptyTags)
+        assertEquals(0, emptyOverflow)
+
+        val twoTags = listOf("work", "urgent")
+        val (visible2, overflow2) = NoteCardFormatting.collapseTags(twoTags, maxVisible = 3)
+        assertEquals(listOf("work", "urgent"), visible2)
+        assertEquals(0, overflow2)
+
+        val threeTags = listOf("tag1", "tag2", "tag3")
+        val (visible3, overflow3) = NoteCardFormatting.collapseTags(threeTags, maxVisible = 3)
+        assertEquals(listOf("tag1", "tag2", "tag3"), visible3)
+        assertEquals(0, overflow3)
+    }
+
+    @Test
+    fun collapseTags_moreThanMax_collapsesOverflow() {
+        val fiveTags = listOf("one", "two", "three", "four", "five")
+        val (visible5, overflow5) = NoteCardFormatting.collapseTags(fiveTags, maxVisible = 3)
+        assertEquals(listOf("one", "two", "three"), visible5)
+        assertEquals(2, overflow5)
+
+        val fourTags = listOf("a", "b", "c", "d")
+        val (visible4, overflow4) = NoteCardFormatting.collapseTags(fourTags, maxVisible = 3)
+        assertEquals(listOf("a", "b", "c"), visible4)
+        assertEquals(1, overflow4)
+    }
 }
