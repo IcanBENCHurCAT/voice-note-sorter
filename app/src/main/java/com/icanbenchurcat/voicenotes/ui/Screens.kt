@@ -28,15 +28,24 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -513,6 +522,8 @@ fun NoteDetailScreen(
     var editTitle by rememberSaveable(note.id, isEditing) { mutableStateOf(note.title) }
     var editTranscript by rememberSaveable(note.id, isEditing) { mutableStateOf(note.transcript) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showShareMenu by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
 
     if (showDeleteConfirmDialog) {
         AlertDialog(
@@ -563,26 +574,94 @@ fun NoteDetailScreen(
                     }
                 },
                 actions = {
-                    OutlinedButton(
+                    IconButton(
                         onClick = {
                             editTitle = note.title
                             editTranscript = note.transcript
                             isEditing = true
                         },
                         modifier = Modifier
-                            .defaultMinSize(minHeight = 48.dp)
+                            .defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
                             .semantics { contentDescription = "Edit note" }
                     ) {
-                        Text(stringResource(R.string.action_edit_note))
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = null
+                        )
                     }
-                    OutlinedButton(
-                        onClick = { showDeleteConfirmDialog = true },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier
-                            .defaultMinSize(minHeight = 48.dp)
-                            .semantics { contentDescription = "Delete note" }
-                    ) {
-                        Text(stringResource(R.string.action_delete_note))
+                    Box {
+                        IconButton(
+                            onClick = {
+                                if (hasAudioFile) {
+                                    showShareMenu = true
+                                } else {
+                                    onShareText()
+                                }
+                            },
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
+                                .semantics { contentDescription = "Share note" }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = null
+                            )
+                        }
+                        if (hasAudioFile) {
+                            DropdownMenu(
+                                expanded = showShareMenu,
+                                onDismissRequest = { showShareMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.action_share_text)) },
+                                    onClick = {
+                                        showShareMenu = false
+                                        onShareText()
+                                    },
+                                    modifier = Modifier.semantics { contentDescription = "Share note text" }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.action_share_audio)) },
+                                    onClick = {
+                                        showShareMenu = false
+                                        onShareAudio()
+                                    },
+                                    modifier = Modifier.semantics { contentDescription = "Share note audio" }
+                                )
+                            }
+                        }
+                    }
+                    Box {
+                        IconButton(
+                            onClick = { showOverflowMenu = true },
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
+                                .semantics { contentDescription = "More options" }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = null
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_delete_note)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null
+                                    )
+                                },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showDeleteConfirmDialog = true
+                                },
+                                modifier = Modifier.semantics { contentDescription = "Delete note" }
+                            )
+                        }
                     }
                 }
             )
@@ -646,30 +725,6 @@ fun NoteDetailScreen(
                 minLines = 4
             )
         }
-        Row(
-            modifier = Modifier.padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedButton(
-                onClick = onShareText,
-                modifier = Modifier
-                    .defaultMinSize(minHeight = 48.dp)
-                    .semantics { contentDescription = "Share note text" }
-            ) {
-                Text(stringResource(R.string.action_share_text))
-            }
-            if (hasAudioFile) {
-                OutlinedButton(
-                    onClick = onShareAudio,
-                    modifier = Modifier
-                        .defaultMinSize(minHeight = 48.dp)
-                        .semantics { contentDescription = "Share note audio" }
-                ) {
-                    Text(stringResource(R.string.action_share_audio))
-                }
-            }
-        }
         val effectiveBuckets = remember(availableBuckets, buckets) {
             if (buckets.isNotEmpty()) {
                 buckets.map { it.kind to it.name }
@@ -726,10 +781,11 @@ fun NoteDetailScreen(
             }
         }
         if (note.status == NoteStatus.NEEDS_REVIEW.name) {
-            OutlinedButton(
+            Button(
                 onClick = { onConfirmOrChangeBucket(note.bucketKind) },
                 modifier = Modifier
                     .padding(top = 8.dp)
+                    .defaultMinSize(minHeight = 48.dp)
                     .semantics { contentDescription = "Confirm bucket filing" }
             ) {
                 Text("Confirm filing (${note.bucketKind})")
