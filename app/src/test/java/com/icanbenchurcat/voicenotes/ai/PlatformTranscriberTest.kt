@@ -12,10 +12,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import android.content.Context
+import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -212,4 +215,62 @@ class PlatformTranscriberTest {
         assertEquals("Transcribed from file: Remind me to call Alex at 5pm.", transcript.text)
         assertEquals(Tier.CORE, transcript.tier)
     }
-}
+
+    @Test
+    fun detectAudioContainerFormat_identifiesWavPcmAndCompressed() {
+        val wavFile = tempFolder.newFile("test.wav")
+        val wavHeader = byteArrayOf('R'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), 'F'.code.toByte()) + ByteArray(40)
+        val dummyContext = android.app.Application()
+        val dummyEngine = AndroidPlatformFileSpeechEngine(dummyContext)
+        assertEquals(
+            AndroidPlatformFileSpeechEngine.AudioContainerFormat.WAV,
+            dummyEngine.detectAudioContainerFormat(wavFile, wavHeader)
+        )
+
+        val pcmFile = tempFolder.newFile("test.pcm")
+        assertEquals(
+            AndroidPlatformFileSpeechEngine.AudioContainerFormat.RAW_PCM,
+            dummyEngine.detectAudioContainerFormat(pcmFile, byteArrayOf(1, 2, 3, 4))
+        )
+
+        val rawFile = tempFolder.newFile("test.raw")
+        assertEquals(
+            AndroidPlatformFileSpeechEngine.AudioContainerFormat.RAW_PCM,
+            dummyEngine.detectAudioContainerFormat(rawFile, byteArrayOf(1, 2, 3, 4))
+        )
+
+        val m4aFile = tempFolder.newFile("test.m4a")
+        assertEquals(
+            AndroidPlatformFileSpeechEngine.AudioContainerFormat.COMPRESSED_MEDIA,
+            dummyEngine.detectAudioContainerFormat(m4aFile, byteArrayOf(1, 2, 3, 4))
+        )
+    }
+
+    @Test
+    fun openAudioPipeOrDescriptor_invokesCompressedDecoderForM4a() {
+        val m4aFile = tempFolder.newFile("recording.m4a").apply {
+            writeBytes(ByteArray(16) { 0 })
+        }
+        var decoderInvoked = false
+        val dummyContext = android.app.Application()
+
+        // We can test AndroidPlatformFileSpeechEngine by passing a custom compressedDecoder lambda
+        // and catching the unmocked OS PFD exception or testing that compressedDecoder is invoked.
+        val engine = AndroidPlatformFileSpeechEngine(
+            context = dummyContext,
+            sdkInt = 33,
+            compressedDecoder = { file ->
+                decoderInvoked = true
+                val pcmTemp = tempFolder.newFile("dummy.pcm")
+                val pfd = ParcelFileDescriptor.open(pcmTemp, ParcelFileDescriptor.MODE_READ_WRITE)
+                AudioStreamConfig(pfd, 44100, 2)
+            }
+        )
+
+        try {
+            engine.openAudioPipeOrDescriptor(m4aFile)
+        } catch (_: RuntimeException) {
+            // Expected in Robolectric due to unmocked native PFD
+        }
+        assertTrue(decoderInvoked)
+    }
