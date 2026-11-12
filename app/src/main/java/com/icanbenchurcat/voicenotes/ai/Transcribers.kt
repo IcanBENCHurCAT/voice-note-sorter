@@ -244,10 +244,19 @@ interface PlatformFileSpeechEngine {
  *   destroyed on the main thread ([Dispatchers.Main]), even when invoked
  *   from a background [androidx.work.CoroutineWorker].
  */
+
+
+public data class AudioStreamConfig(
+    val pfd: ParcelFileDescriptor,
+    val sampleRateHz: Int,
+    val channelCount: Int
+)
+
 class AndroidPlatformFileSpeechEngine(
     private val context: Context,
     private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
-    private val sdkInt: Int = Build.VERSION.SDK_INT
+    private val sdkInt: Int = Build.VERSION.SDK_INT,
+    private val compressedDecoder: (File) -> AudioStreamConfig = Companion::decodeCompressedMediaToPcmPipe
 ) : PlatformFileSpeechEngine {
 
     override fun isFileTranscriptionAvailable(): Boolean {
@@ -349,48 +358,177 @@ class AndroidPlatformFileSpeechEngine(
         }
     }
 
-    private data class AudioStreamConfig(
-        val pfd: ParcelFileDescriptor,
-        val sampleRateHz: Int,
-        val channelCount: Int
-    )
 
-    private fun openAudioPipeOrDescriptor(file: File): AudioStreamConfig {
-        val bytes = file.readBytes()
-        if (bytes.size > WAV_HEADER_BYTES &&
-            bytes[0] == 'R'.code.toByte() &&
-            bytes[1] == 'I'.code.toByte() &&
-            bytes[2] == 'F'.code.toByte() &&
-            bytes[3] == 'F'.code.toByte()
-        ) {
-            val header = ByteBuffer.wrap(bytes, 0, WAV_HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
-            val channels = header.getShort(22).toInt().coerceIn(1, 2)
-            val sampleRate = header.getInt(24).takeIf { it in 8_000..48_000 } ?: DEFAULT_SAMPLE_RATE_HZ
-            val pipe = ParcelFileDescriptor.createPipe()
-            val readSide = pipe[0]
-            val writeSide = pipe[1]
-            Thread {
-                try {
-                    ParcelFileDescriptor.AutoCloseOutputStream(writeSide).use { out ->
-                        out.write(bytes, WAV_HEADER_BYTES, bytes.size - WAV_HEADER_BYTES)
-                        out.flush()
-                    }
-                } catch (_: Throwable) {
-                }
-            }.start()
-            return AudioStreamConfig(readSide, sampleRate, channels)
-        }
-        return AudioStreamConfig(
-            pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY),
-            sampleRateHz = DEFAULT_SAMPLE_RATE_HZ,
-            channelCount = DEFAULT_CHANNEL_COUNT
-        )
+
+    internal enum class AudioContainerFormat {
+        WAV,
+        RAW_PCM,
+        COMPRESSED_MEDIA
     }
 
     companion object {
         private const val WAV_HEADER_BYTES = 44
         private const val DEFAULT_SAMPLE_RATE_HZ = 16_000
         private const val DEFAULT_CHANNEL_COUNT = 1
+
+        internal fun detectAudioContainerFormat(file: File, headerBytes: ByteArray): AudioContainerFormat {
+            if (headerBytes.size >= 4 &&
+                headerBytes[0] == 'R'.code.toByte() &&
+                headerBytes[1] == 'I'.code.toByte() &&
+                headerBytes[2] == 'F'.code.toByte() &&
+                headerBytes[3] == 'F'.code.toByte()
+            ) {
+                return AudioContainerFormat.WAV
+            }
+            val ext = file.extension.lowercase(Locale.ROOT)
+            if (ext == "pcm" || ext == "raw") {
+                return AudioContainerFormat.RAW_PCM
+            }
+            return AudioContainerFormat.COMPRESSED_MEDIA
+        }
+
+        internal fun decodeCompressedMediaToPcmPipe(file: File): AudioStreamConfig {
+            val extractor = android.media.MediaExtractor()
+            try {
+                extractor.setDataSource(file.absolutePath)
+                var audioTrackIndex = -1
+                var trackFormat: android.media.MediaFormat? = null
+                for (i in 0 until extractor.trackCount) {
+                    val format = extractor.getTrackFormat(i)
+                    val mime = format.getString(android.media.MediaFormat.KEY_MIME)
+                    if (mime != null && mime.startsWith("audio/")) {
+                        audioTrackIndex = i
+                        trackFormat = format
+                        break
+                    }
+                }
+                if (audioTrackIndex < 0 || trackFormat == null) {
+                    throw IllegalArgumentException("No audio track found in ${file.path}")
+                }
+                extractor.selectTrack(audioTrackIndex)
+
+                val sampleRate = if (trackFormat.containsKey(android.media.MediaFormat.KEY_SAMPLE_RATE)) {
+                    trackFormat.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+                } else {
+                    DEFAULT_SAMPLE_RATE_HZ
+                }
+                val channels = if (trackFormat.containsKey(android.media.MediaFormat.KEY_CHANNEL_COUNT)) {
+                    trackFormat.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT).coerceIn(1, 2)
+                } else {
+                    DEFAULT_CHANNEL_COUNT
+                }
+
+                trackFormat.setInteger(android.media.MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+                val mime = trackFormat.getString(android.media.MediaFormat.KEY_MIME)
+                    ?: throw IllegalArgumentException("Audio track MIME type is null")
+
+                val codec = android.media.MediaCodec.createDecoderByType(mime)
+                codec.configure(trackFormat, null, null, 0)
+                codec.start()
+
+                val pipe = ParcelFileDescriptor.createPipe()
+                val readSide = pipe[0]
+                val writeSide = pipe[1]
+
+                Thread {
+                    val outputStream = ParcelFileDescriptor.AutoCloseOutputStream(writeSide)
+                    val bufferInfo = android.media.MediaCodec.BufferInfo()
+                    var inputEos = false
+                    var outputEos = false
+                    try {
+                        while (!outputEos) {
+                            if (!inputEos) {
+                                val inIndex = codec.dequeueInputBuffer(10_000L)
+                                if (inIndex >= 0) {
+                                    val inputBuffer = codec.getInputBuffer(inIndex)
+                                    if (inputBuffer != null) {
+                                        val sampleSize = extractor.readSampleData(inputBuffer, 0)
+                                        if (sampleSize < 0) {
+                                            codec.queueInputBuffer(inIndex, 0, 0, 0L, android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                            inputEos = true
+                                        } else {
+                                            val presentationTimeUs = extractor.sampleTime
+                                            codec.queueInputBuffer(inIndex, 0, sampleSize, presentationTimeUs, 0)
+                                            extractor.advance()
+                                        }
+                                    }
+                                }
+                            }
+
+                            val outIndex = codec.dequeueOutputBuffer(bufferInfo, 10_000L)
+                            if (outIndex >= 0) {
+                                if ((bufferInfo.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                                    outputEos = true
+                                }
+                                val outputBuffer = codec.getOutputBuffer(outIndex)
+                                if (outputBuffer != null && bufferInfo.size > 0) {
+                                    outputBuffer.position(bufferInfo.offset)
+                                    outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+                                    val chunk = ByteArray(bufferInfo.size)
+                                    outputBuffer.get(chunk)
+                                    outputStream.write(chunk)
+                                }
+                                codec.releaseOutputBuffer(outIndex, false)
+                            }
+                        }
+                        outputStream.flush()
+                    } catch (_: Throwable) {
+                    } finally {
+                        runCatching { outputStream.close() }
+                        runCatching { codec.stop() }
+                        runCatching { codec.release() }
+                        runCatching { extractor.release() }
+                    }
+                }.start()
+
+                return AudioStreamConfig(pfd = readSide, sampleRateHz = sampleRate, channelCount = channels)
+            } catch (e: Throwable) {
+                runCatching { extractor.release() }
+                throw e
+            }
+        }
+
+        internal fun openAudioPipeOrDescriptor(
+            file: File,
+            compressedDecoder: (File) -> AudioStreamConfig = ::decodeCompressedMediaToPcmPipe
+        ): AudioStreamConfig {
+            val headerBytes = file.inputStream().use { input ->
+                val buf = ByteArray(64)
+                val read = input.read(buf)
+                if (read > 0) buf.copyOf(read) else ByteArray(0)
+            }
+            when (detectAudioContainerFormat(file, headerBytes)) {
+                AudioContainerFormat.WAV -> {
+                    val bytes = file.readBytes()
+                    val header = ByteBuffer.wrap(bytes, 0, WAV_HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+                    val channels = header.getShort(22).toInt().coerceIn(1, 2)
+                    val sampleRate = header.getInt(24).takeIf { it in 8_000..48_000 } ?: DEFAULT_SAMPLE_RATE_HZ
+                    val pipe = ParcelFileDescriptor.createPipe()
+                    val readSide = pipe[0]
+                    val writeSide = pipe[1]
+                    Thread {
+                        try {
+                            ParcelFileDescriptor.AutoCloseOutputStream(writeSide).use { out ->
+                                out.write(bytes, WAV_HEADER_BYTES, bytes.size - WAV_HEADER_BYTES)
+                                out.flush()
+                            }
+                        } catch (_: Throwable) {
+                        }
+                    }.start()
+                    return AudioStreamConfig(readSide, sampleRate, channels)
+                }
+                AudioContainerFormat.RAW_PCM -> {
+                    return AudioStreamConfig(
+                        pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY),
+                        sampleRateHz = DEFAULT_SAMPLE_RATE_HZ,
+                        channelCount = DEFAULT_CHANNEL_COUNT
+                    )
+                }
+                AudioContainerFormat.COMPRESSED_MEDIA -> {
+                    return compressedDecoder(file)
+                }
+            }
+        }
     }
 }
 
