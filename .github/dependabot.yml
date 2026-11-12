@@ -7,6 +7,9 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    ignore:
+      - dependency-name: "androidx.datastore:*"
+        versions: [">= 1.2.0"]
     groups:
       dependencies:
         patterns:
