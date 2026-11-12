@@ -26,6 +26,8 @@ jobs:
           gradle-version: "9.1.0"
       - name: Build debug
         run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Build release (R8 verification)
+        run: ./gradlew :app:assembleRelease --stacktrace
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
