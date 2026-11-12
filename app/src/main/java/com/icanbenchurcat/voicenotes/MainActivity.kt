@@ -412,6 +412,12 @@ class MainActivity : ComponentActivity() {
                                                 scope.launch {
                                                     storageManager.setDeveloperModeEnabled(enabled)
                                                 }
+                                            },
+                                            onDeleteAllNotes = {
+                                                scope.launch {
+                                                    deletionCoordinator.deleteAllNotes()
+                                                    refreshStorageStats()
+                                                }
                                             }
                                         )
                                     }

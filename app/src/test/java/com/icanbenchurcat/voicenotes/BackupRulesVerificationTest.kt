@@ -96,4 +96,37 @@ class BackupRulesVerificationTest {
         assertTrue(excludes.contains("file" to "."))
         assertTrue(excludes.contains("root" to "."))
     }
+
+    @Test
+    fun manifest_declaresQueriesForAiCoreAndSpeechRecognition() {
+        val manifestFile = File(projectRoot, "app/src/main/AndroidManifest.xml")
+        val root = parseXml(manifestFile)
+        val queriesNodes = root.getElementsByTagName("queries")
+        assertEquals(1, queriesNodes.length)
+        val queries = queriesNodes.item(0) as Element
+
+        val packages = queries.getElementsByTagName("package")
+        var foundAiCore = false
+        for (i in 0 until packages.length) {
+            val pkg = packages.item(i) as Element
+            if (pkg.getAttribute("android:name") == "com.google.android.aicore") {
+                foundAiCore = true
+            }
+        }
+        assertTrue("Expected <package android:name=\"com.google.android.aicore\" /> inside <queries>", foundAiCore)
+
+        val intents = queries.getElementsByTagName("intent")
+        var foundSpeech = false
+        for (i in 0 until intents.length) {
+            val intent = intents.item(i) as Element
+            val actions = intent.getElementsByTagName("action")
+            for (j in 0 until actions.length) {
+                val action = actions.item(j) as Element
+                if (action.getAttribute("android:name") == "android.speech.RecognitionService") {
+                    foundSpeech = true
+                }
+            }
+        }
+        assertTrue("Expected <action android:name=\"android.speech.RecognitionService\" /> inside <queries>", foundSpeech)
+    }
 }
