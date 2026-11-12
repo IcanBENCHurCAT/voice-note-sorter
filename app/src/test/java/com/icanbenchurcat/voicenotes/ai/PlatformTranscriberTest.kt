@@ -12,10 +12,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import android.content.Context
+import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -211,5 +214,52 @@ class PlatformTranscriberTest {
         assertTrue(engine.dispatchedOnExpectedContext.get())
         assertEquals("Transcribed from file: Remind me to call Alex at 5pm.", transcript.text)
         assertEquals(Tier.CORE, transcript.tier)
+    }
+
+    @Test
+    fun detectAudioContainerFormat_identifiesWavPcmAndCompressed() {
+        val wavFile = tempFolder.newFile("test.wav")
+        val wavHeader = byteArrayOf('R'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), 'F'.code.toByte()) + ByteArray(40)
+        assertEquals(
+            AndroidPlatformFileSpeechEngine.AudioContainerFormat.WAV,
+            AndroidPlatformFileSpeechEngine.detectAudioContainerFormat(wavFile, wavHeader)
+        )
+
+        val pcmFile = tempFolder.newFile("test.pcm")
+        assertEquals(
+            AndroidPlatformFileSpeechEngine.AudioContainerFormat.RAW_PCM,
+            AndroidPlatformFileSpeechEngine.detectAudioContainerFormat(pcmFile, byteArrayOf(1, 2, 3, 4))
+        )
+
+        val rawFile = tempFolder.newFile("test.raw")
+        assertEquals(
+            AndroidPlatformFileSpeechEngine.AudioContainerFormat.RAW_PCM,
+            AndroidPlatformFileSpeechEngine.detectAudioContainerFormat(rawFile, byteArrayOf(1, 2, 3, 4))
+        )
+
+        val m4aFile = tempFolder.newFile("test.m4a")
+        assertEquals(
+            AndroidPlatformFileSpeechEngine.AudioContainerFormat.COMPRESSED_MEDIA,
+            AndroidPlatformFileSpeechEngine.detectAudioContainerFormat(m4aFile, byteArrayOf(1, 2, 3, 4))
+        )
+    }
+
+    @Test
+    fun openAudioPipeOrDescriptor_invokesCompressedDecoderForM4a() {
+        val m4aFile = tempFolder.newFile("recording.m4a").apply {
+            writeBytes(ByteArray(16) { 0 })
+        }
+        var decoderInvoked = false
+
+        try {
+            AndroidPlatformFileSpeechEngine.openAudioPipeOrDescriptor(m4aFile) { file ->
+                decoderInvoked = true
+                throw IllegalStateException("Test sentinel")
+            }
+        } catch (_: IllegalStateException) {
+            // Expected
+        }
+
+        assertTrue(decoderInvoked)
     }
 }
