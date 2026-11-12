@@ -69,9 +69,11 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onRefreshProbe: () -> Unit = {},
     onToggleAutoDeleteOldAudio: (Boolean) -> Unit = {},
-    onToggleDeveloperMode: (Boolean) -> Unit = {}
+    onToggleDeveloperMode: (Boolean) -> Unit = {},
+    onDeleteAllNotes: () -> Unit = {}
 ) {
     var showEnableRetentionDialog by remember { mutableStateOf(false) }
+    var showDeleteAllDialog by remember { mutableStateOf(false) }
 
     if (showEnableRetentionDialog) {
         AlertDialog(
@@ -90,6 +92,34 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showEnableRetentionDialog = false }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
+        )
+    }
+
+    if (showDeleteAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAllDialog = false },
+            title = { Text(stringResource(R.string.dialog_delete_all_title)) },
+            text = { Text(stringResource(R.string.dialog_delete_all_message)) },
+            confirmButton = {
+                val confirmDeleteAllDesc = stringResource(R.string.cd_confirm_delete_all_notes)
+                TextButton(
+                    onClick = {
+                        showDeleteAllDialog = false
+                        onDeleteAllNotes()
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.semantics { contentDescription = confirmDeleteAllDesc }
+                ) {
+                    Text(stringResource(R.string.dialog_delete_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAllDialog = false }) {
                     Text(stringResource(R.string.dialog_cancel))
                 }
             }
@@ -195,7 +225,8 @@ fun SettingsScreen(
                         } else {
                             onToggleAutoDeleteOldAudio(false)
                         }
-                    }
+                    },
+                    onDeleteAllNotes = { showDeleteAllDialog = true }
                 )
             }
 
@@ -421,7 +452,8 @@ fun StatusChip(status: CapabilityStatus) {
 fun StorageStatsCard(
     storageStats: StorageStats,
     isAutoDeleteEnabled: Boolean,
-    onToggleAutoDelete: (Boolean) -> Unit
+    onToggleAutoDelete: (Boolean) -> Unit,
+    onDeleteAllNotes: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -492,6 +524,21 @@ fun StorageStatsCard(
                         contentDescription = "Toggle auto-delete audio older than 90 days"
                     }
                 )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            val deleteAllDesc = stringResource(R.string.cd_delete_all_notes)
+            OutlinedButton(
+                onClick = onDeleteAllNotes,
+                enabled = storageStats.noteCount > 0 || storageStats.audioSizeBytes > 0L,
+                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = deleteAllDesc }
+            ) {
+                Text(stringResource(R.string.action_delete_all_notes))
             }
         }
     }
