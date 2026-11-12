@@ -102,7 +102,7 @@ class RecordingService : Service() {
                 }
             }
 
-            val notification = buildNotification(isPaused = false, elapsedSec = 0L, isWarning = false)
+            val notification = buildRecordingNotification(this, isPaused = false, elapsedSec = 0L, isWarning = false)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 ServiceCompat.startForeground(
                     this,
@@ -276,88 +276,18 @@ class RecordingService : Service() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.channel_recording_name),
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
             description = getString(R.string.channel_recording_desc)
             setShowBadge(false)
+            setSound(null, null)
+            enableVibration(false)
         }
         manager.createNotificationChannel(channel)
     }
 
     private fun buildNotification(isPaused: Boolean, elapsedSec: Long, isWarning: Boolean): Notification {
-        val minutes = elapsedSec / 60
-        val seconds = elapsedSec % 60
-        val timeString = String.format("%02d:%02d", minutes, seconds)
-
-        val title = if (isWarning) {
-            getString(R.string.notif_recording_warning_title)
-        } else if (isPaused) {
-            getString(R.string.notif_recording_paused_title)
-        } else {
-            getString(R.string.notif_recording_active_title)
-        }
-
-        val contentText = if (isWarning) {
-            getString(R.string.notif_recording_warning_desc, timeString)
-        } else {
-            getString(R.string.notif_recording_elapsed, timeString)
-        }
-
-        val contentIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val stopIntent = PendingIntent.getService(
-            this,
-            1,
-            Intent(this, RecordingService::class.java).apply { action = ACTION_STOP_RECORDING },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val pauseResumeAction = if (isPaused) {
-            val resumeIntent = PendingIntent.getService(
-                this,
-                2,
-                Intent(this, RecordingService::class.java).apply { action = ACTION_RESUME_RECORDING },
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            NotificationCompat.Action.Builder(
-                android.R.drawable.ic_media_play,
-                getString(R.string.action_resume_recording),
-                resumeIntent
-            ).build()
-        } else {
-            val pauseIntent = PendingIntent.getService(
-                this,
-                3,
-                Intent(this, RecordingService::class.java).apply { action = ACTION_PAUSE_RECORDING },
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            NotificationCompat.Action.Builder(
-                android.R.drawable.ic_media_pause,
-                getString(R.string.action_pause_recording),
-                pauseIntent
-            ).build()
-        }
-
-        val stopAction = NotificationCompat.Action.Builder(
-            android.R.drawable.ic_notification_clear_all,
-            getString(R.string.action_stop_recording),
-            stopIntent
-        ).build()
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(contentText)
-            .setSmallIcon(R.drawable.ic_tile_record)
-            .setContentIntent(contentIntent)
-            .setOngoing(!isPaused)
-            .addAction(pauseResumeAction)
-            .addAction(stopAction)
-            .build()
+        return buildRecordingNotification(this, isPaused, elapsedSec, isWarning)
     }
 
     private fun updateNotification(isPaused: Boolean, elapsedSec: Long, isWarning: Boolean) {
@@ -366,7 +296,7 @@ class RecordingService : Service() {
     }
 
     companion object {
-        const val CHANNEL_ID = "recording_session_channel"
+        const val CHANNEL_ID = "recording_live_update_channel"
         const val NOTIFICATION_ID = 2001
 
         const val ACTION_START_RECORDING = "com.icanbenchurcat.voicenotes.action.START_RECORDING"
@@ -377,6 +307,22 @@ class RecordingService : Service() {
 
         const val WARNING_LIMIT_SECONDS = 240L // 4 minutes
         const val HARD_LIMIT_SECONDS = 300L // 5 minutes
+
+        fun buildRecordingNotification(
+            context: Context,
+            isPaused: Boolean,
+            elapsedSec: Long,
+            isWarning: Boolean,
+            nowEpochMs: Long = System.currentTimeMillis()
+        ): Notification {
+            return RecordingNotificationBuilder.buildRecordingNotification(
+                context,
+                isPaused,
+                elapsedSec,
+                isWarning,
+                nowEpochMs
+            )
+        }
 
         private val _sessionState = MutableStateFlow<CaptureSessionState>(CaptureSessionState.Idle)
         val sessionState: StateFlow<CaptureSessionState> = _sessionState.asStateFlow()

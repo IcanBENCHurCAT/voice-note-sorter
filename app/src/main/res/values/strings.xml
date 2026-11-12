@@ -86,6 +86,7 @@
     <string name="notif_recording_warning_title">Recording limit approaching (5 min)</string>
     <string name="notif_recording_elapsed">Elapsed: %1$s</string>
     <string name="notif_recording_warning_desc">Elapsed: %1$s • 1 minute remaining before auto-stop</string>
+    <string name="notif_chip_paused">Paused</string>
     <string name="action_pause_recording">Pause</string>
     <string name="action_resume_recording">Resume</string>
     <string name="action_stop_recording">Stop</string>

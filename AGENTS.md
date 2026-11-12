@@ -81,6 +81,6 @@ and the constitution conflict, stop and ask the maintainer.
   Room, WorkManager, Glance, ML Kit GenAI behind interfaces
 - minSdk 31, targetSdk 36, compileSdk 37
 - Build: `./gradlew :app:assembleDebug` (`gradlew.bat :app:assembleDebug` on
-  Windows; Gradle 9.1, JDK 17); CI runs the same
+  Windows; Gradle 9.9, JDK 17); CI runs the same
 - Where this file and the Gradle files disagree on versions, the Gradle
   files win and this file is corrected in the same change.
