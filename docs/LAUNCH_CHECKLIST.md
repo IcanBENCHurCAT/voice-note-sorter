@@ -2,7 +2,7 @@
 
 Living tracker for the Google Play Store launch gates, conforming to Spec Section 11 and Issue #29.
 
-Last updated: 2026-11-04  
+Last updated: 2026-11-12  
 Target Release: v1.0.0 (MVP)  
 Package: `com.icanbenchurcat.voicenotes`  
 
@@ -25,7 +25,7 @@ Google Play requires all apps targeting Android 15+ devices to support 16 KB mem
 | Native Component / Library | Status | Verification Method |
 | :--- | :--- | :--- |
 | **App Binaries & Bytecode** | **PASS** | Kotlin / Java pure bytecode (`no NDK / C++ custom native code`). Native page alignment is inherited from standard Android runtime. |
-| **SQLite / Room Bundled Libs** | **PASS** | Room 2.7.0-alpha13 uses platform SQLite (`android.database.sqlite`) on API 31–37; no third-party native `.so` packaged in APK. |
+| **SQLite / Room Bundled Libs** | **PASS** | Room 2.8.5 uses platform SQLite (`android.database.sqlite`) on API 31–37; no third-party native `.so` packaged in APK. |
 | **Emulator Test Run (`ps16k`)** | **PASS** | Verified on `Pixel_10_Pro_XL` AVD (`google_apis_playstore_ps16k/x86_64`, API 37.0, 16 KB page size). Cold launch, database queries, and Glance widget rendered without page fault crashes. |
 | **Binary Verification (`objdump`)** | **PASS** | APK contains zero unaligned 4 KB ELF segments in `lib/`. |
 
@@ -54,6 +54,6 @@ Under the local-only guarantee (Constitution Article I):
 - [x] **Accessibility Touch Targets**: All interactive targets across capture flow, note cards, and widget meet the 48dp minimum floor.
 - [x] **Storage Visibility**: Settings displays accurate audio and database storage byte breakdown.
 - [x] **Audio Retention Policy**: Opt-in 90-day audio auto-delete policy implemented with explicit user consent.
-- [ ] **E2E Integration Gate**: Automated instrumented capture-to-filed loop test on device (Issue #40, pending PR #69 merge).
+- [x] **E2E Integration Gate**: Automated instrumented capture-to-filed loop test on device (`CaptureToFiledLoopE2ETest`, verified on API 31, 36, and 37).
 - [ ] **14-Day Closed Testing Completion**: Complete closed testing run with 12+ registered testers.
 - [ ] **Production Track Promotion**: Submit production build release bundle (`.aab`).
