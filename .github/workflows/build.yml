@@ -22,8 +22,6 @@ jobs:
       # package), which killed the first CI build before Gradle ran.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: "9.1.0"
       - name: Build debug
         run: ./gradlew :app:assembleDebug --stacktrace
       - name: Unit tests
@@ -51,8 +49,6 @@ jobs:
           java-version: 17
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: "9.1.0"
       - name: Run instrumented tests on emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
