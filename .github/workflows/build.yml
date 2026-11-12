@@ -24,6 +24,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
       - name: Build debug
         run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Build release (R8 verification)
+        run: ./gradlew :app:assembleRelease --stacktrace
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
