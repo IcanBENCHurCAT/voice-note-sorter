@@ -124,6 +124,8 @@ class NotesViewModel(
 
 class MainActivity : ComponentActivity() {
 
+    private val pendingStartRecording = MutableStateFlow(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val db = AppDatabase.get(this)
@@ -132,13 +134,16 @@ class MainActivity : ComponentActivity() {
         val capabilityProbe = CapabilityProbe.get(this)
         val storageManager = StorageRetentionManager.fromContext(this)
         enableEdgeToEdge()
-        val startRecordingFromIntent = intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true
+        if (consumeStartRecordingIntent(intent)) {
+            pendingStartRecording.value = true
+        }
 
         setContent {
             VoiceNoteSorterTheme {
                 val context = LocalContext.current
                 val captureUseCase = remember { StartCaptureUseCase(context) }
                 val recordingSessionState by RecordingService.sessionState.collectAsState()
+                val shouldStartRecording by pendingStartRecording.collectAsState()
 
                 var showMicRationaleDialog by remember { mutableStateOf(false) }
 
@@ -180,8 +185,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                LaunchedEffect(startRecordingFromIntent) {
-                    if (startRecordingFromIntent) {
+                LaunchedEffect(shouldStartRecording) {
+                    if (shouldStartRecording) {
+                        pendingStartRecording.value = false
                         triggerCapture()
                     }
                 }
@@ -517,7 +523,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (consumeStartRecordingIntent(intent)) {
+            pendingStartRecording.value = true
+        }
+    }
+
     companion object {
         const val EXTRA_START_RECORDING = "extra_start_recording"
+
+        internal fun consumeStartRecordingIntent(intent: Intent?): Boolean {
+            if (intent?.getBooleanExtra(EXTRA_START_RECORDING, false) == true) {
+                intent.removeExtra(EXTRA_START_RECORDING)
+                return true
+            }
+            return false
+        }
     }
 }

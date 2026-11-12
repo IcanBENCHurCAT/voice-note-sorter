@@ -2,10 +2,16 @@
 
 package com.icanbenchurcat.voicenotes.audio
 
+import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -13,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -35,6 +42,58 @@ fun formatDuration(ms: Int): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format(Locale.US, "%d:%02d", minutes, seconds)
+}
+
+interface AudioFocusController {
+    fun requestFocus(onFocusLost: () -> Unit): Boolean
+    fun abandonFocus()
+}
+
+object NoOpAudioFocusController : AudioFocusController {
+    override fun requestFocus(onFocusLost: () -> Unit): Boolean = true
+    override fun abandonFocus() {}
+}
+
+class AndroidAudioFocusController(context: Context) : AudioFocusController {
+    private val audioManager = context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private var activeRequest: AudioReferenceRequest? = null
+
+    private class AudioReferenceRequest(val request: AudioFocusRequest)
+
+    override fun requestFocus(onFocusLost: () -> Unit): Boolean {
+        val am = audioManager ?: return true
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setOnAudioFocusChangeListener { focusChange ->
+                if (focusChange == AudioManager.AUDIOFOCUS_LOSS ||
+                    focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT ||
+                    focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
+                ) {
+                    onFocusLost()
+                }
+            }
+            .build()
+
+        val res = am.requestAudioFocus(request)
+        val granted = (res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        if (granted) {
+            activeRequest = AudioReferenceRequest(request)
+        }
+        return granted
+    }
+
+    override fun abandonFocus() {
+        val am = audioManager ?: return
+        activeRequest?.let {
+            am.abandonAudioFocusRequest(it.request)
+        }
+        activeRequest = null
+    }
 }
 
 interface AudioPlayerClient {
@@ -113,6 +172,7 @@ class AudioPlaybackState(
     val audioPath: String,
     private val coroutineScope: CoroutineScope,
     private val playerFactory: () -> AudioPlayerClient = { AndroidMediaPlayerClient() },
+    private val focusController: AudioFocusController = NoOpAudioFocusController,
     private val fileExistsChecker: (String) -> Boolean = { path ->
         path.isNotBlank() && File(path).let { it.exists() && it.isFile && it.length() > 0L }
     }
@@ -177,11 +237,13 @@ class AudioPlaybackState(
                 client.prepare()
                 durationMs = client.duration
                 client.setOnCompletionListener {
+                    focusController.abandonFocus()
                     status = PlaybackStatus.COMPLETED
                     currentPositionMs = durationMs
                     stopProgressTracking()
                 }
                 client.setOnErrorListener { _, _ ->
+                    focusController.abandonFocus()
                     status = PlaybackStatus.ERROR
                     errorMessage = "Audio playback failed"
                     stopProgressTracking()
@@ -206,6 +268,11 @@ class AudioPlaybackState(
         val activePlayer = player ?: return
 
         try {
+            if (!focusController.requestFocus(onFocusLost = { pause() })) {
+                status = PlaybackStatus.PAUSED
+                return
+            }
+
             if (status == PlaybackStatus.COMPLETED) {
                 activePlayer.seekTo(0)
                 currentPositionMs = 0
@@ -214,6 +281,7 @@ class AudioPlaybackState(
             status = PlaybackStatus.PLAYING
             startProgressTracking()
         } catch (e: Exception) {
+            focusController.abandonFocus()
             status = PlaybackStatus.ERROR
             errorMessage = "Playback failed"
             stopProgressTracking()
@@ -221,6 +289,7 @@ class AudioPlaybackState(
     }
 
     fun pause() {
+        focusController.abandonFocus()
         val activePlayer = player ?: return
         try {
             if (activePlayer.isPlaying) {
@@ -251,6 +320,7 @@ class AudioPlaybackState(
     }
 
     fun stop() {
+        focusController.abandonFocus()
         stopProgressTracking()
         try {
             player?.stop()
@@ -261,6 +331,7 @@ class AudioPlaybackState(
     }
 
     fun release() {
+        focusController.abandonFocus()
         stopProgressTracking()
         try {
             player?.release()
@@ -300,14 +371,26 @@ fun rememberAudioPlayerState(
         path.isNotBlank() && File(path).let { it.exists() && it.isFile && it.length() > 0L }
     }
 ): AudioPlaybackState {
+    val context = LocalContext.current
+    val focusController = remember(context) { AndroidAudioFocusController(context) }
     val coroutineScope = rememberCoroutineScope()
-    val state = remember(audioPath) {
+    val state = remember(audioPath, focusController) {
         AudioPlaybackState(
             audioPath = audioPath,
             coroutineScope = coroutineScope,
             playerFactory = playerFactory,
+            focusController = focusController,
             fileExistsChecker = fileExistsChecker
         )
+    }
+
+    val recordingState by com.icanbenchurcat.voicenotes.capture.RecordingService.sessionState.collectAsState()
+    LaunchedEffect(recordingState) {
+        if (recordingState is com.icanbenchurcat.voicenotes.capture.CaptureSessionState.Recording &&
+            state.status == PlaybackStatus.PLAYING
+        ) {
+            state.pause()
+        }
     }
 
     DisposableEffect(audioPath) {

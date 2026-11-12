@@ -44,7 +44,7 @@ class RecordWidget : GlanceAppWidget() {
         provideContent {
             GlanceTheme {
                 val intent = Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                     putExtra(MainActivity.EXTRA_START_RECORDING, true)
                 }
                 val cdWidgetRecord = context.getString(R.string.cd_widget_record)
@@ -66,7 +66,7 @@ class RecordWidget : GlanceAppWidget() {
                     )
                     Spacer(modifier = GlanceModifier.width(12.dp))
                     Text(
-                        text = "Record a note",
+                        text = context.getString(R.string.tile_label),
                         style = TextStyle(
                             color = GlanceTheme.colors.onPrimaryContainer,
                             fontWeight = FontWeight.Medium

@@ -2,6 +2,7 @@
 
 package com.icanbenchurcat.voicenotes.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -524,6 +525,11 @@ fun NoteDetailScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showShareMenu by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    BackHandler(enabled = isEditing) {
+        isEditing = false
+        editTitle = note.title
+        editTranscript = note.transcript
+    }
 
     if (showDeleteConfirmDialog) {
         AlertDialog(
