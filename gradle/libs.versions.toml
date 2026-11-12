@@ -13,7 +13,7 @@ glance = "1.1.1"
 lifecycle = "2.9.4"
 # DataStore pinned to 1.1.4: 1.3.0 FileMoves uses atomicMoveTo which fails with
 # IOException (File rename failed) on Windows test runners due to file locking.
-datastore = "1.3.0"
+datastore = "1.1.4"
 coroutinesTest = "1.11.0"
 androidxTestJunit = "1.3.0"
 androidxTestRunner = "1.7.0"
