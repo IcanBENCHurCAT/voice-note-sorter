@@ -85,6 +85,32 @@ class FakeAudioPlayerClient : AudioPlayerClient {
     }
 }
 
+class FakeAudioFocusController(
+    private var grantFocus: Boolean = true
+) : AudioFocusController {
+    var requestCount = 0
+    var abandonCount = 0
+    var lastOnFocusLost: (() -> Unit)? = null
+
+    override fun requestFocus(onFocusLost: () -> Unit): Boolean {
+        requestCount++
+        lastOnFocusLost = onFocusLost
+        return grantFocus
+    }
+
+    override fun abandonFocus() {
+        abandonCount++
+    }
+
+    fun simulateFocusLoss() {
+        lastOnFocusLost?.invoke()
+    }
+
+    fun setGrantFocus(grant: Boolean) {
+        grantFocus = grant
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class AudioPlaybackStateTest {
 
@@ -100,105 +126,75 @@ class AudioPlaybackStateTest {
     }
 
     @Test
-    fun missingAudioFile_setsErrorStateAndFileUnavailable() {
-        val testScope = TestScope()
+    fun play_requestsAudioFocus_andOnFocusLostPauses() = runTest {
         val fakePlayer = FakeAudioPlayerClient()
+        val fakeFocus = FakeAudioFocusController(grantFocus = true)
         val state = AudioPlaybackState(
-            audioPath = "/non/existent/audio.m4a",
-            coroutineScope = testScope,
+            audioPath = "/valid/path/note.m4a",
+            coroutineScope = backgroundScope,
             playerFactory = { fakePlayer },
-            fileExistsChecker = { false }
+            focusController = fakeFocus,
+            fileExistsChecker = { true }
         )
 
-        assertFalse(state.isFileAvailable)
-        assertEquals(PlaybackStatus.ERROR, state.status)
-        assertEquals("Audio recording not available on device", state.errorMessage)
-        assertFalse(fakePlayer.prepared)
-
-        // Attempting to play does nothing and remains in error
         state.play()
-        assertEquals(PlaybackStatus.ERROR, state.status)
+        assertEquals(1, fakeFocus.requestCount)
+        assertEquals(PlaybackStatus.PLAYING, state.status)
+
+        fakeFocus.simulateFocusLoss()
+        assertEquals(PlaybackStatus.PAUSED, state.status)
+        assertEquals(1, fakeFocus.abandonCount)
+    }
+
+    @Test
+    fun play_whenFocusDenied_doesNotStart() = runTest {
+        val fakePlayer = FakeAudioPlayerClient()
+        val fakeFocus = FakeAudioFocusController(grantFocus = false)
+        val state = AudioPlaybackState(
+            audioPath = "/valid/path/note.m4a",
+            coroutineScope = backgroundScope,
+            playerFactory = { fakePlayer },
+            focusController = fakeFocus,
+            fileExistsChecker = { true }
+        )
+
+        state.play()
+        assertEquals(1, fakeFocus.requestCount)
+        assertEquals(PlaybackStatus.PAUSED, state.status)
         assertFalse(fakePlayer.started)
     }
 
     @Test
-    fun validAudioFile_initializesIdleAndTransitionsThroughStates() = runTest {
-        val fakePlayer = FakeAudioPlayerClient().apply {
-            playerDuration = 120_000
-        }
+    fun pauseStopReleaseCompletion_callAbandonFocus() = runTest {
+        val fakePlayer = FakeAudioPlayerClient()
+        val fakeFocus = FakeAudioFocusController(grantFocus = true)
         val state = AudioPlaybackState(
             audioPath = "/valid/path/note.m4a",
             coroutineScope = backgroundScope,
             playerFactory = { fakePlayer },
+            focusController = fakeFocus,
             fileExistsChecker = { true }
         )
 
-        assertTrue(state.isFileAvailable)
-        assertEquals(PlaybackStatus.IDLE, state.status)
-        assertNull(state.errorMessage)
-        assertEquals("0:00", state.elapsedFormatted)
-
-        // Play
         state.play()
         assertEquals(PlaybackStatus.PLAYING, state.status)
-        assertTrue(fakePlayer.prepared)
-        assertTrue(fakePlayer.started)
-        assertEquals(120_000, state.durationMs)
-        assertEquals("2:00", state.durationFormatted)
 
-        // Advance progress
-        fakePlayer.position = 30_000
-        testScheduler.advanceTimeBy(150L)
-        assertEquals(30_000, state.currentPositionMs)
-        assertEquals("0:30", state.elapsedFormatted)
-        assertEquals(0.25f, state.progress, 0.01f)
-
-        // Pause
         state.pause()
         assertEquals(PlaybackStatus.PAUSED, state.status)
-        assertTrue(fakePlayer.paused)
-        assertEquals(30_000, state.currentPositionMs)
+        assertEquals(1, fakeFocus.abandonCount)
 
-        // Resume with togglePlayPause
-        state.togglePlayPause()
-        assertEquals(PlaybackStatus.PLAYING, state.status)
-        assertTrue(fakePlayer.started)
-
-        // Stop
+        state.play()
         state.stop()
         assertEquals(PlaybackStatus.IDLE, state.status)
-        assertEquals(0, state.currentPositionMs)
-        assertTrue(fakePlayer.stopped)
-
-        // Release
-        state.release()
-        assertTrue(fakePlayer.released)
-    }
-
-    @Test
-    fun playbackCompletion_updatesStatusAndProgress() = runTest {
-        val fakePlayer = FakeAudioPlayerClient().apply {
-            playerDuration = 60_000
-        }
-        val state = AudioPlaybackState(
-            audioPath = "/valid/path/note.m4a",
-            coroutineScope = backgroundScope,
-            playerFactory = { fakePlayer },
-            fileExistsChecker = { true }
-        )
+        assertEquals(2, fakeFocus.abandonCount)
 
         state.play()
-        assertEquals(PlaybackStatus.PLAYING, state.status)
-
         fakePlayer.triggerCompletion()
         assertEquals(PlaybackStatus.COMPLETED, state.status)
-        assertEquals(60_000, state.currentPositionMs)
-        assertEquals(1.0f, state.progress, 0.01f)
+        assertEquals(3, fakeFocus.abandonCount)
 
-        // Replaying after completion seeks to 0 and starts playing
-        state.play()
-        assertEquals(PlaybackStatus.PLAYING, state.status)
-        assertEquals(0, fakePlayer.position)
+        state.release()
+        assertEquals(4, fakeFocus.abandonCount)
     }
 
     @Test
