@@ -262,3 +262,4 @@ class PlatformTranscriberTest {
 
         assertTrue(decoderInvoked)
     }
+}
