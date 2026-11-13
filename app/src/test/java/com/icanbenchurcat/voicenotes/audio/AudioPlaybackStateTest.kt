@@ -233,4 +233,74 @@ class AudioPlaybackStateTest {
         assertEquals(50_000, fakePlayer.position)
         assertEquals("0:50", state.elapsedFormatted)
     }
+
+    @Test
+    fun init_loadsDurationWithoutPlayingOrRequestingFocus() = runTest {
+        val fakePlayer = FakeAudioPlayerClient()
+        val fakeFocus = FakeAudioFocusController(grantFocus = true)
+        val state = AudioPlaybackState(
+            audioPath = "/valid/path/note.m4a",
+            coroutineScope = backgroundScope,
+            playerFactory = { fakePlayer },
+            focusController = fakeFocus,
+            fileExistsChecker = { true },
+            durationReader = { 85_000 }
+        )
+
+        assertEquals(85_000, state.durationMs)
+        assertEquals("1:25", state.durationFormatted)
+        assertEquals("0:00", state.elapsedFormatted)
+        assertEquals(PlaybackStatus.IDLE, state.status)
+        assertEquals(0, fakeFocus.requestCount)
+        assertFalse(fakePlayer.prepared)
+    }
+
+    @Test
+    fun init_withMissingFile_setsUnavailableAndSkipsDurationRead() = runTest {
+        var readCalls = 0
+        val state = AudioPlaybackState(
+            audioPath = "/missing/path/note.m4a",
+            coroutineScope = backgroundScope,
+            fileExistsChecker = { false },
+            durationReader = {
+                readCalls++
+                10_000
+            }
+        )
+
+        assertFalse(state.isFileAvailable)
+        assertEquals(PlaybackStatus.ERROR, state.status)
+        assertEquals("Audio recording not available on device", state.errorMessage)
+        assertEquals(0, state.durationMs)
+        assertEquals(0, readCalls)
+    }
+
+    @Test
+    fun init_withDurationCache_doesNotReReadFile() = runTest {
+        val cache = mutableMapOf<String, Int>()
+        var readCalls = 0
+        val reader: (String) -> Int? = {
+            readCalls++
+            12_000
+        }
+
+        val first = AudioPlaybackState(
+            audioPath = "/valid/path/cached.m4a",
+            coroutineScope = backgroundScope,
+            fileExistsChecker = { true },
+            durationReader = reader,
+            durationCache = cache
+        )
+        val second = AudioPlaybackState(
+            audioPath = "/valid/path/cached.m4a",
+            coroutineScope = backgroundScope,
+            fileExistsChecker = { true },
+            durationReader = reader,
+            durationCache = cache
+        )
+
+        assertEquals(12_000, first.durationMs)
+        assertEquals(12_000, second.durationMs)
+        assertEquals(1, readCalls)
+    }
 }

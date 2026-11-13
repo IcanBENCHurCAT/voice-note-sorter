@@ -6,6 +6,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -27,6 +28,29 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+
+private object AudioDurationCache {
+    val map: MutableMap<String, Int> = ConcurrentHashMap()
+}
+
+internal fun readAudioDurationMs(path: String): Int? {
+    if (path.isBlank()) return null
+    val retriever = MediaMetadataRetriever()
+    return try {
+        retriever.setDataSource(path)
+        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            ?.toIntOrNull()
+            ?.takeIf { it > 0 }
+    } catch (_: Throwable) {
+        null
+    } finally {
+        try {
+            retriever.release()
+        } catch (_: Throwable) {
+        }
+    }
+}
 
 enum class PlaybackStatus {
     IDLE,
@@ -175,7 +199,9 @@ class AudioPlaybackState(
     private val focusController: AudioFocusController = NoOpAudioFocusController,
     private val fileExistsChecker: (String) -> Boolean = { path ->
         path.isNotBlank() && File(path).let { it.exists() && it.isFile && it.length() > 0L }
-    }
+    },
+    private val durationReader: (String) -> Int? = { path -> readAudioDurationMs(path) },
+    private val durationCache: MutableMap<String, Int>? = null
 ) {
     var status by mutableStateOf(PlaybackStatus.IDLE)
         private set
@@ -209,7 +235,27 @@ class AudioPlaybackState(
     private var progressJob: Job? = null
 
     init {
-        checkFileAvailability()
+        if (checkFileAvailability()) {
+            loadDurationIfNeeded()
+        }
+    }
+
+    private fun loadDurationIfNeeded() {
+        if (durationMs > 0 || !isFileAvailable) return
+        val cached = durationCache?.get(audioPath)
+        if (cached != null && cached > 0) {
+            durationMs = cached
+            return
+        }
+        val read = try {
+            durationReader(audioPath)
+        } catch (_: Throwable) {
+            null
+        }
+        if (read != null && read > 0) {
+            durationMs = read
+            durationCache?.put(audioPath, read)
+        }
     }
 
     fun checkFileAvailability(): Boolean {
@@ -235,7 +281,11 @@ class AudioPlaybackState(
                 val client = playerFactory()
                 client.setDataSource(audioPath)
                 client.prepare()
-                durationMs = client.duration
+                val preparedDuration = client.duration
+                if (preparedDuration > 0) {
+                    durationMs = preparedDuration
+                    durationCache?.put(audioPath, preparedDuration)
+                }
                 client.setOnCompletionListener {
                     focusController.abandonFocus()
                     status = PlaybackStatus.COMPLETED
@@ -380,7 +430,8 @@ fun rememberAudioPlayerState(
             coroutineScope = coroutineScope,
             playerFactory = playerFactory,
             focusController = focusController,
-            fileExistsChecker = fileExistsChecker
+            fileExistsChecker = fileExistsChecker,
+            durationCache = AudioDurationCache.map
         )
     }
 
