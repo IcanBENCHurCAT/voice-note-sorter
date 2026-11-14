@@ -81,10 +81,42 @@ interface BucketProfileProvider {
 object DefaultBucketProfileProvider : BucketProfileProvider {
     override fun profile() = BucketProfile(
         listOf(
-            BucketDef("IDEA", "Ideas", listOf("idea", "what if", "we should build")),
-            BucketDef("TASK", "Tasks", listOf("remind me", "need to", "don't forget", "buy", "call")),
-            BucketDef("LIST", "Lists", listOf("list", "groceries", "shopping")),
-            BucketDef("NOTE", "Notes", emptyList()),
+            BucketDef(
+                "IDEA",
+                "Ideas",
+                listOf(
+                    "idea", "what if", "we should build", "brainstorm",
+                    "concept", "proposal", "prototype", "feature idea", "design idea"
+                )
+            ),
+            BucketDef(
+                "TASK",
+                "Tasks",
+                listOf(
+                    "remind me", "need to", "don't forget", "do not forget",
+                    "remember to", "have to", "must", "buy", "call",
+                    "pick up", "send", "email", "file", "create", "open",
+                    "write", "fix", "debug", "investigate", "submit",
+                    "finish", "follow up", "todo", "to-do", "tasks"
+                )
+            ),
+            BucketDef(
+                "LIST",
+                "Lists",
+                listOf(
+                    "list", "groceries", "shopping", "checklist",
+                    "packing list", "wish list", "reading list", "inventory"
+                )
+            ),
+            BucketDef(
+                "NOTE",
+                "Notes",
+                listOf(
+                    "note", "voice note", "memo", "journal", "summary",
+                    "observation", "thoughts", "reflection", "recording",
+                    "transcription", "meeting notes", "status update", "recap"
+                )
+            ),
             BucketDef("INBOX", "Inbox", emptyList())
         )
     )
