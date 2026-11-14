@@ -30,10 +30,14 @@ interface CapabilityChecker {
 
 /**
  * Production [CapabilityChecker] that queries [NanoTranscriber] (which isolates
- * all ML Kit GenAI imports in `Transcribers.kt`) and [PlatformTranscriber]
- * saved-file transcription availability on the running device.
+ * all ML Kit GenAI speech imports in `Transcribers.kt`), [GenAiPromptClient]
+ * (which isolates all ML Kit GenAI Prompt imports in `GenerativeAi.kt`), and
+ * [PlatformTranscriber] saved-file transcription availability on the running device.
  */
-class DeviceCapabilityChecker(private val context: Context) : CapabilityChecker {
+class DeviceCapabilityChecker(
+    private val context: Context,
+    private val promptClient: GenAiPromptClient = MlKitGenAiPromptClient
+) : CapabilityChecker {
 
     private val nanoTranscriber = NanoTranscriber(context)
     private val platformTranscriber = PlatformTranscriber(context)
@@ -79,6 +83,13 @@ class DeviceCapabilityChecker(private val context: Context) : CapabilityChecker 
     private suspend fun probeFoundationModelStatus(): CapabilityStatus {
         if (!isAiCoreInstalledAndEnabled()) {
             return CapabilityStatus.UNAVAILABLE
+        }
+        val promptStatus = promptClient.checkStatus()
+        if (promptStatus == CapabilityStatus.AVAILABLE || promptStatus == CapabilityStatus.BUSY) {
+            return promptStatus
+        }
+        if (promptStatus == CapabilityStatus.DOWNLOADABLE) {
+            return CapabilityStatus.DOWNLOADABLE
         }
         return nanoTranscriber.advancedStatus()
     }

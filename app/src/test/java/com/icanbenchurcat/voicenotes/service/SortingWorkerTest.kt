@@ -16,8 +16,12 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.ExtractiveSummarizer
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
 import com.icanbenchurcat.voicenotes.ai.FakeCapabilityChecker
+import com.icanbenchurcat.voicenotes.ai.FakeGenAiPromptClient
 import com.icanbenchurcat.voicenotes.ai.HeuristicActionExtractor
 import com.icanbenchurcat.voicenotes.ai.HeuristicBucketer
+import com.icanbenchurcat.voicenotes.ai.NanoActionExtractor
+import com.icanbenchurcat.voicenotes.ai.NanoBucketer
+import com.icanbenchurcat.voicenotes.ai.NanoSummarizer
 import com.icanbenchurcat.voicenotes.ai.NullTranscriber
 import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
@@ -49,6 +53,9 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.time.Clock
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 class SortingWorkerTest {
 
@@ -512,5 +519,288 @@ class SortingWorkerTest {
         assertEquals("TASK", outcome.updatedNote.bucketKind)
         assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
         assertTrue(outcome.updatedNote.stageStatus.contains("summarize:BUSY"))
+        assertEquals("CORE", outcome.updatedNote.tierUsed)
+    }
+
+    @Test
+    fun tierFullAvailable_selectsNanoGenerativeModels_andSetsTierUsedFull() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val zone = ZoneId.of("UTC")
+        val fixedClock = Clock.fixed(
+            LocalDateTime.of(2026, 11, 2, 10, 0, 0).atZone(zone).toInstant(),
+            zone
+        )
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            responder = { prompt ->
+                when {
+                    prompt.startsWith("Summarize this voice note transcript.") ->
+                        "Title: Plumbing & Parts Run\nSummary: Call the plumber tomorrow at 2pm and pick up replacement gaskets."
+                    prompt.startsWith("Extract concrete action items") ->
+                        "ACTION: Call the plumber | DUE: tomorrow at 2pm\nACTION: Pick up replacement gaskets | DUE: NONE"
+                    prompt.startsWith("Classify this voice note transcript") ->
+                        "BUCKET: TASK\nTAGS: plumbing, home-repair"
+                    else -> ""
+                }
+            }
+        )
+
+        val fallbackSummarizer = FakeSummarizer(result = TitleSummary("Fallback", "Fallback summary"))
+        val fallbackExtractor = FakeActionExtractor(items = listOf(ExtractedAction("Fallback action")))
+        val fallbackBucketer = FakeBucketer(BucketAssignment("INBOX", listOf("fallback"), Tier.CORE))
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(
+                result = Transcript(
+                    "Need to call the plumber tomorrow at 2pm and pick up replacement gaskets.",
+                    Tier.FULL
+                )
+            ),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = NanoSummarizer(promptClient, fallbackSummarizer),
+            extractor = NanoActionExtractor(promptClient, fallbackExtractor, fixedClock),
+            bucketer = NanoBucketer(promptClient, fallbackBucketer),
+            fallbackSummarizer = fallbackSummarizer,
+            fallbackExtractor = fallbackExtractor,
+            fallbackBucketer = fallbackBucketer,
+            dao = dao
+        )
+
+        assertEquals(3, promptClient.generateCalls)
+        assertEquals(0, fallbackSummarizer.calls)
+        assertEquals(0, fallbackExtractor.calls)
+        assertEquals(0, fallbackBucketer.calls)
+
+        assertEquals("Plumbing & Parts Run", outcome.updatedNote.title)
+        assertEquals(
+            "Call the plumber tomorrow at 2pm and pick up replacement gaskets.",
+            outcome.updatedNote.summary
+        )
+        assertEquals("TASK", outcome.updatedNote.bucketKind)
+        assertEquals(listOf("home-repair", "plumbing"), outcome.tags)
+        assertEquals(2, outcome.extractedActions.size)
+        assertNotNull(outcome.extractedActions[0].dueAtEpochMs)
+        assertEquals("FULL", outcome.updatedNote.tierUsed)
+        assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
+        assertEquals(
+            "transcribe:OK,summarize:OK,actions:OK,bucket:OK",
+            outcome.updatedNote.stageStatus
+        )
+    }
+
+    @Test
+    fun probeUnavailable_usesFallbacksWithoutCallingPromptModels_andSetsTierUsedCoreEvenWhenTranscriptFull() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.UNAVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE
+            ),
+            dataStore
+        )
+
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            response = "Title: Should Not Run\nSummary: Should not run."
+        )
+        val fallbackSummarizer = FakeSummarizer(result = TitleSummary("Extractive title", "Extractive summary"))
+        val fallbackExtractor = FakeActionExtractor(items = listOf(ExtractedAction("Heuristic task")))
+        val fallbackBucketer = FakeBucketer(BucketAssignment("TASK", listOf("heuristic"), Tier.CORE))
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(
+                result = Transcript("Remind me to call Sam.", Tier.FULL)
+            ),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = NanoSummarizer(promptClient, fallbackSummarizer),
+            extractor = NanoActionExtractor(promptClient, fallbackExtractor),
+            bucketer = NanoBucketer(promptClient, fallbackBucketer),
+            fallbackSummarizer = fallbackSummarizer,
+            fallbackExtractor = fallbackExtractor,
+            fallbackBucketer = fallbackBucketer,
+            dao = dao
+        )
+
+        assertEquals(0, promptClient.generateCalls)
+        assertEquals(1, fallbackSummarizer.calls)
+        assertEquals(1, fallbackExtractor.calls)
+        assertEquals(1, fallbackBucketer.calls)
+        assertEquals("Extractive title", outcome.updatedNote.title)
+        assertEquals("TASK", outcome.updatedNote.bucketKind)
+        assertEquals("CORE", outcome.updatedNote.tierUsed)
+        assertEquals(
+            "transcribe:OK,summarize:OK,actions:OK,bucket:OK",
+            outcome.updatedNote.stageStatus
+        )
+    }
+
+    @Test
+    fun stages2To4Busy_demotesAllToFallbacks_setsNeedsReviewAndTierUsedCore() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val busyPromptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            generateException = CapabilityBusyException()
+        )
+        val fallbackSummarizer = FakeSummarizer(result = TitleSummary("Fallback Title", "Fallback Summary"))
+        val fallbackExtractor = FakeActionExtractor(items = listOf(ExtractedAction("Call Sam")))
+        val fallbackBucketer = FakeBucketer(BucketAssignment("TASK", listOf("call"), Tier.CORE))
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(
+                result = Transcript("Remind me to call Sam tomorrow.", Tier.FULL)
+            ),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = NanoSummarizer(busyPromptClient, fallbackSummarizer),
+            extractor = NanoActionExtractor(busyPromptClient, fallbackExtractor),
+            bucketer = NanoBucketer(busyPromptClient, fallbackBucketer),
+            fallbackSummarizer = fallbackSummarizer,
+            fallbackExtractor = fallbackExtractor,
+            fallbackBucketer = fallbackBucketer,
+            dao = dao
+        )
+
+        assertEquals(3, busyPromptClient.generateCalls)
+        assertEquals(1, fallbackSummarizer.calls)
+        assertEquals(1, fallbackExtractor.calls)
+        assertEquals(1, fallbackBucketer.calls)
+        assertEquals("CORE", outcome.updatedNote.tierUsed)
+        assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
+        assertEquals(
+            "transcribe:OK,summarize:BUSY,summarize_fallback:OK,actions:BUSY,actions_fallback:OK,bucket:BUSY,bucket_fallback:OK",
+            outcome.updatedNote.stageStatus
+        )
+    }
+
+    @Test
+    fun bucketerStatusUnavailable_selectsFallbackBucketer_andPartialModelSuccessPreservesFullTier() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val primaryBucketer = FakeBucketer(
+            assignment = BucketAssignment("IDEA", listOf("unused"), Tier.FULL),
+            currentStatus = CapabilityStatus.UNAVAILABLE
+        )
+        val fallbackBucketer = FakeBucketer(
+            assignment = BucketAssignment("TASK", listOf("fallback-tag"), Tier.CORE)
+        )
+
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            responder = { prompt ->
+                if (prompt.startsWith("Summarize")) {
+                    "Title: Generative Title\nSummary: Generative Summary."
+                } else {
+                    "NONE"
+                }
+            }
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Call Sam.", Tier.FULL)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = NanoSummarizer(promptClient),
+            extractor = NanoActionExtractor(promptClient),
+            bucketer = primaryBucketer,
+            fallbackSummarizer = ExtractiveSummarizer(),
+            fallbackExtractor = HeuristicActionExtractor(),
+            fallbackBucketer = fallbackBucketer,
+            dao = dao
+        )
+
+        assertEquals(0, primaryBucketer.calls)
+        assertEquals(1, fallbackBucketer.calls)
+        assertEquals("TASK", outcome.updatedNote.bucketKind)
+        assertEquals(listOf("fallback-tag"), outcome.tags)
+        // Stages 2 and 3 succeeded on Nano models -> tierUsed remains FULL
+        assertEquals("FULL", outcome.updatedNote.tierUsed)
+    }
+
+    @Test
+    fun nanoModelsUnparseableInAllStages2To4_fallsBackToHeuristics_andSetsTierUsedCore() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val unparseableClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            response = "Unparseable gibberish output"
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(
+                result = Transcript("Remind me to buy oat milk and call Sam.", Tier.FULL)
+            ),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = NanoSummarizer(unparseableClient, ExtractiveSummarizer()),
+            extractor = NanoActionExtractor(unparseableClient, HeuristicActionExtractor()),
+            bucketer = NanoBucketer(unparseableClient, HeuristicBucketer()),
+            fallbackSummarizer = ExtractiveSummarizer(),
+            fallbackExtractor = HeuristicActionExtractor(),
+            fallbackBucketer = HeuristicBucketer(),
+            dao = dao
+        )
+
+        assertEquals(3, unparseableClient.generateCalls)
+        assertEquals("TASK", outcome.updatedNote.bucketKind)
+        assertEquals(listOf("buy", "call", "remind-me"), outcome.tags)
+        assertEquals("CORE", outcome.updatedNote.tierUsed)
     }
 }
