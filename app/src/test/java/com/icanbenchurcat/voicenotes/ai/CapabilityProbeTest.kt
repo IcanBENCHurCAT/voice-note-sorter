@@ -183,4 +183,25 @@ class CapabilityProbeTest {
         results.forEach { assertEquals(CapabilityStatus.AVAILABLE, it) }
         assertEquals(1, checker.transcriberCalls.get())
     }
+
+    @Test
+    fun downloadFoundationModel_invalidatesCacheAndTransitionsToAvailable() = runTest {
+        var currentFoundationStatus = CapabilityStatus.DOWNLOADABLE
+        val checker = object : CapabilityChecker {
+            override suspend fun checkTranscriber(): CapabilityStatus = CapabilityStatus.AVAILABLE
+            override suspend fun checkSummarizer(): CapabilityStatus = currentFoundationStatus
+            override suspend fun checkActionExtractor(): CapabilityStatus = currentFoundationStatus
+            override fun versionFingerprint(): String = "app=1|aicore=300"
+            override suspend fun downloadFoundationModel(): Boolean {
+                currentFoundationStatus = CapabilityStatus.AVAILABLE
+                return true
+            }
+        }
+        val probe = CapabilityProbe(checker, dataStore)
+
+        assertEquals(Tier.CORE, probe.resolveDeviceTier())
+        assertEquals(true, probe.downloadFoundationModel())
+        assertEquals(CapabilityStatus.AVAILABLE, probe.summarizerStatus())
+        assertEquals(Tier.FULL, probe.resolveDeviceTier())
+    }
 }

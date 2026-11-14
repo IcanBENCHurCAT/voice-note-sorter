@@ -12,6 +12,7 @@ import android.os.ParcelFileDescriptor
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.common.audio.AudioSource
@@ -20,6 +21,7 @@ import com.google.mlkit.genai.speechrecognition.SpeechRecognizerOptions
 import com.google.mlkit.genai.speechrecognition.SpeechRecognizerResponse
 import com.google.mlkit.genai.speechrecognition.speechRecognizerOptions
 import com.google.mlkit.genai.speechrecognition.speechRecognizerRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -39,6 +41,7 @@ import kotlin.coroutines.resumeWithException
 interface GenAiSpeechClient {
     suspend fun checkStatus(advancedMode: Boolean): CapabilityStatus
     suspend fun recognizeFile(audioPath: String, advancedMode: Boolean): String
+    suspend fun download(advancedMode: Boolean): Boolean = false
 }
 
 /**
@@ -79,6 +82,41 @@ object MlKitGenAiSpeechClient : GenAiSpeechClient {
             // Verified in Issue #41: checkStatus() can throw an uncaught gRPC
             // StatusException (zzaxh: PERMISSION_DENIED) on unsupported targets.
             CapabilityStatus.UNAVAILABLE
+        } finally {
+            runCatching { recognizer.close() }
+        }
+    }
+
+    override suspend fun download(advancedMode: Boolean): Boolean {
+        val mode = if (advancedMode) {
+            SpeechRecognizerOptions.Mode.MODE_ADVANCED
+        } else {
+            SpeechRecognizerOptions.Mode.MODE_BASIC
+        }
+        val recognizer = try {
+            SpeechRecognition.getClient(
+                speechRecognizerOptions {
+                    locale = Locale.getDefault()
+                    preferredMode = mode
+                }
+            )
+        } catch (_: Throwable) {
+            return false
+        }
+        return try {
+            var completed = false
+            recognizer.download().collect { status ->
+                when (status) {
+                    is DownloadStatus.DownloadCompleted -> completed = true
+                    is DownloadStatus.DownloadFailed -> throw status.e
+                    else -> Unit
+                }
+            }
+            completed || recognizer.checkStatus() == FeatureStatus.AVAILABLE
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            false
         } finally {
             runCatching { recognizer.close() }
         }
@@ -170,6 +208,21 @@ class NanoTranscriber(
     /** Returns the status of the Tier 3 (Advanced / AICore) speech mode specifically. */
     suspend fun advancedStatus(): CapabilityStatus =
         genAiClient.checkStatus(advancedMode = true)
+
+    /** Triggers download for any downloadable on-device speech mode. */
+    suspend fun download(): Boolean {
+        val advOk = if (genAiClient.checkStatus(advancedMode = true) == CapabilityStatus.DOWNLOADABLE) {
+            genAiClient.download(advancedMode = true)
+        } else {
+            false
+        }
+        val basicOk = if (genAiClient.checkStatus(advancedMode = false) == CapabilityStatus.DOWNLOADABLE) {
+            genAiClient.download(advancedMode = false)
+        } else {
+            false
+        }
+        return advOk || basicOk
+    }
 
     override suspend fun status(): CapabilityStatus {
         val advanced = genAiClient.checkStatus(advancedMode = true)
