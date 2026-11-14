@@ -78,4 +78,75 @@ class HeuristicBucketerTest {
         assertEquals(0.0f, assignment.confidence, 0.001f)
         assertTrue(assignment.needsReview)
     }
+
+    @Test
+    fun emptyOrBlankTranscript_landsInInboxAndIsFlaggedNeedsReview() = runTest {
+        for (transcript in listOf("", "   ")) {
+            val assignment = bucketer.assign(transcript, defaultProfile)
+
+            assertEquals("INBOX", assignment.bucketKind)
+            assertTrue(assignment.tags.isEmpty())
+            assertEquals(0, assignment.score)
+            assertEquals(0.0f, assignment.confidence, 0.001f)
+            assertTrue(assignment.needsReview)
+        }
+    }
+
+    @Test
+    fun repoTaskDictation_filesAsTask() = runTest {
+        val transcript =
+            "So now I'd like to file issues on the repo for this app so that we can have our agents pick up new tasks."
+
+        val assignment = bucketer.assign(transcript, defaultProfile)
+
+        assertEquals("TASK", assignment.bucketKind)
+        assertEquals(listOf("file", "pick-up", "tasks"), assignment.tags.sorted())
+        assertFalse(assignment.needsReview)
+        assertTrue(assignment.confidence >= 0.8f)
+    }
+
+    @Test
+    fun voiceNoteAndTranscriptionDictation_filesAsNote() = runTest {
+        val transcript = "this is a test voice note, we'd like to make sure transcription works"
+
+        val assignment = bucketer.assign(transcript, defaultProfile)
+
+        assertEquals("NOTE", assignment.bucketKind)
+        assertEquals(listOf("note", "transcription", "voice-note"), assignment.tags.sorted())
+        assertFalse(assignment.needsReview)
+        assertTrue(assignment.confidence >= 0.8f)
+    }
+
+    @Test
+    fun groceryDictation_filesAsList() = runTest {
+        val transcript = "Shopping list for groceries, milk, and coffee beans."
+
+        val assignment = bucketer.assign(transcript, defaultProfile)
+
+        assertEquals("LIST", assignment.bucketKind)
+        assertEquals(listOf("groceries", "list", "shopping"), assignment.tags.sorted())
+        assertFalse(assignment.needsReview)
+    }
+
+    @Test
+    fun explicitReminder_filesAsTask() = runTest {
+        val transcript = "Remind me to pick up the prescription and email the accountant."
+
+        val assignment = bucketer.assign(transcript, defaultProfile)
+
+        assertEquals("TASK", assignment.bucketKind)
+        assertEquals(listOf("email", "pick-up", "remind-me"), assignment.tags.sorted())
+        assertFalse(assignment.needsReview)
+    }
+
+    @Test
+    fun whatIfIdea_filesAsIdea() = runTest {
+        val transcript = "what if we built a local voice sorter"
+
+        val assignment = bucketer.assign(transcript, defaultProfile)
+
+        assertEquals("IDEA", assignment.bucketKind)
+        assertEquals(listOf("what-if"), assignment.tags)
+        assertFalse(assignment.needsReview)
+    }
 }
