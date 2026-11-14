@@ -75,6 +75,7 @@ dependencies {
     // interfaces; nothing else in the app may reference these directly.
     implementation(libs.mlkit.genai.speech)
     implementation(libs.mlkit.genai.common)
+    implementation(libs.mlkit.genai.prompt)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

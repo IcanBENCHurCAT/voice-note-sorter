@@ -244,7 +244,7 @@ class ExtractiveSummarizer : Summarizer {
             .sortedBy { it.index }
             .map { ensureTerminalPunctuation(it.text) }
 
-        val title = cleanTitle(bestForTitle.text).take(60)
+        val title = truncateAtWordBoundary(cleanTitle(bestForTitle.text), MAX_TITLE_CHARS)
         val summary = topSegments.joinToString(" ")
         return TitleSummary(title, summary)
     }
@@ -256,6 +256,8 @@ class ExtractiveSummarizer : Summarizer {
     )
 
     companion object {
+        internal const val MAX_TITLE_CHARS = 60
+
         private val stopWords = setOf(
             "a", "an", "the", "and", "or", "but", "if", "then", "so", "to", "of", "in", "on",
             "at", "for", "with", "by", "from", "up", "about", "into", "over", "after", "is",
@@ -265,8 +267,19 @@ class ExtractiveSummarizer : Summarizer {
         )
 
         private val fillerOpeners = listOf(
-            "testing", "hello", "hey there", "let me see", "is this thing on",
+            "testing", "testing one two", "this is a test", "this is just a test",
+            "test voice note", "hello", "hey there", "let me see", "is this thing on",
             "um", "uh", "okay so", "well anyway"
+        )
+
+        private val fillerOpenerRegex = Regex(
+            "^(?:${fillerOpeners.joinToString("|") { Regex.escape(it) }})\\b"
+        )
+
+        private val leadingFillerPrefixRegex = Regex(
+            "^(?:(?:um|uh|okay\\s+so|well\\s+anyway|so\\s+now)[,\\s]+)*" +
+                "(?:this\\s+is\\s+(?:just\\s+)?a\\s+test(?:\\s+voice\\s+note)?(?:[,\\s]+(?:and[,\\s]+)?(?:first[,\\s]+)?)?)?",
+            RegexOption.IGNORE_CASE
         )
 
         private val signalPhrases = listOf(
@@ -302,16 +315,38 @@ class ExtractiveSummarizer : Summarizer {
             }
 
             val lowerTrimmed = segment.trim().lowercase(Locale.ROOT)
-            if (fillerOpeners.any { lowerTrimmed.startsWith(it) } && contentWords.size <= 3) {
+            if (fillerOpenerRegex.containsMatchIn(lowerTrimmed)) {
                 score -= 4.0
             }
 
             return score
         }
 
+        internal fun truncateAtWordBoundary(text: String, maxChars: Int = MAX_TITLE_CHARS): String {
+            val normalized = text.trim()
+            if (normalized.length <= maxChars) return normalized
+            val lastSpace = normalized.substring(0, maxChars + 1).lastIndexOf(' ')
+            return if (lastSpace > 0) {
+                normalized.substring(0, lastSpace)
+                    .trimEnd('.', ',', ';', ':', '-', ' ')
+                    .ifBlank { normalized.take(maxChars) }
+            } else {
+                normalized.take(maxChars)
+            }
+        }
+
         private fun cleanTitle(text: String): String {
             val stripped = text.trim().trimEnd('.', '!', '?', ',', ';')
-            return stripped.ifBlank { "Untitled note" }
+            if (stripped.isBlank()) return "Untitled note"
+            val candidate = stripped.replaceFirst(leadingFillerPrefixRegex, "")
+                .trimStart(',', ';', ':', '-', ' ')
+                .trim()
+            val candidateWords = candidate.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            return if (candidate.isNotBlank() && candidateWords.size >= 3) {
+                candidate
+            } else {
+                stripped
+            }
         }
 
         private fun ensureTerminalPunctuation(text: String): String {
