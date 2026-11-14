@@ -14,6 +14,7 @@ import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.ai.ExtractiveSummarizer
 import com.icanbenchurcat.voicenotes.ai.HeuristicActionExtractor
 import com.icanbenchurcat.voicenotes.ai.HeuristicBucketer
+import com.icanbenchurcat.voicenotes.ai.NanoSummarizer
 import com.icanbenchurcat.voicenotes.ai.NanoTranscriber
 import com.icanbenchurcat.voicenotes.ai.NullTranscriber
 import com.icanbenchurcat.voicenotes.ai.PlatformTranscriber
@@ -68,9 +69,10 @@ class SortingWorker(
         transcriber = transcriberOverride ?: NanoTranscriber(context),
         platformTranscriber = transcriberOverride ?: PlatformTranscriber(context),
         nullTranscriber = NullTranscriber,
-        summarizer = ExtractiveSummarizer(),
+        summarizer = NanoSummarizer(),
         extractor = HeuristicActionExtractor(),
-        bucketer = HeuristicBucketer()
+        bucketer = HeuristicBucketer(),
+        fallbackSummarizer = ExtractiveSummarizer()
     )
 
     override suspend fun doWork(): Result {
@@ -204,25 +206,25 @@ class SortingWorker(
 
             // Stage 2: title + summary — independently caught and persisted
             val probedSummarizerStatus = capabilityProbe.summarizerStatus()
-            val activeSummarizer = if (
-                probedSummarizerStatus == CapabilityStatus.AVAILABLE &&
-                summarizer.status() == CapabilityStatus.AVAILABLE
-            ) {
-                summarizer
-            } else {
-                fallbackSummarizer
-            }
             try {
+                val activeSummarizer = if (
+                    probedSummarizerStatus == CapabilityStatus.AVAILABLE &&
+                    summarizer.status() == CapabilityStatus.AVAILABLE
+                ) {
+                    summarizer
+                } else {
+                    fallbackSummarizer
+                }
                 val ts = try {
                     val result = activeSummarizer.summarize(currentNote.transcript)
                     stages += "summarize:OK"
                     result
                 } catch (e: CancellationException) {
                     throw e
-                } catch (e: CapabilityBusyException) {
-                    stages += "summarize:BUSY"
-                    CapabilityProbe.logDemotion("summarizer", Tier.FULL, Tier.CORE)
+                } catch (e: Exception) {
+                    stages += if (e is CapabilityBusyException) "summarize:BUSY" else "summarize:FAILED"
                     if (activeSummarizer !== fallbackSummarizer) {
+                        CapabilityProbe.logDemotion("summarizer", Tier.FULL, Tier.CORE)
                         val fallbackResult = fallbackSummarizer.summarize(currentNote.transcript)
                         stages += "summarize_fallback:OK"
                         fallbackResult
@@ -242,7 +244,9 @@ class SortingWorker(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                stages += "summarize:FAILED"
+                if (stages.none { it.startsWith("summarize:") }) {
+                    stages += "summarize:FAILED"
+                }
                 currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
             }
             dao?.update(currentNote)

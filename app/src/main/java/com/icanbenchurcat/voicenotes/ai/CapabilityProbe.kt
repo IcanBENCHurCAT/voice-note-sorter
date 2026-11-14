@@ -29,14 +29,15 @@ interface CapabilityChecker {
 }
 
 /**
- * Production [CapabilityChecker] that queries [NanoTranscriber] (which isolates
- * all ML Kit GenAI imports in `Transcribers.kt`) and [PlatformTranscriber]
- * saved-file transcription availability on the running device.
+ * Production [CapabilityChecker] that queries [NanoTranscriber] (ML Kit GenAI
+ * speech in `Transcribers.kt`), [NanoSummarizer] (ML Kit GenAI prompt in
+ * `Summarizers.kt`), and [PlatformTranscriber] on the running device.
  */
 class DeviceCapabilityChecker(private val context: Context) : CapabilityChecker {
 
     private val nanoTranscriber = NanoTranscriber(context)
     private val platformTranscriber = PlatformTranscriber(context)
+    private val nanoSummarizer = NanoSummarizer()
 
     override suspend fun checkTranscriber(): CapabilityStatus {
         val nanoStatus = nanoTranscriber.status()
@@ -55,7 +56,12 @@ class DeviceCapabilityChecker(private val context: Context) : CapabilityChecker 
         return CapabilityStatus.UNAVAILABLE
     }
 
-    override suspend fun checkSummarizer(): CapabilityStatus = probeFoundationModelStatus()
+    override suspend fun checkSummarizer(): CapabilityStatus {
+        if (!isAiCoreInstalledAndEnabled()) {
+            return CapabilityStatus.UNAVAILABLE
+        }
+        return nanoSummarizer.status()
+    }
 
     override suspend fun checkActionExtractor(): CapabilityStatus = probeFoundationModelStatus()
 

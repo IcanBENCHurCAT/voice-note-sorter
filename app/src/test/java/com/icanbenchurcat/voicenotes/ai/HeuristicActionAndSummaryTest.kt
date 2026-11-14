@@ -2,19 +2,53 @@
 
 package com.icanbenchurcat.voicenotes.ai
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.NoteStatus
+import com.icanbenchurcat.voicenotes.fixtures.FakeSummarizer
+import com.icanbenchurcat.voicenotes.fixtures.FakeTranscriber
+import com.icanbenchurcat.voicenotes.fixtures.InMemoryFakeNoteDao
+import com.icanbenchurcat.voicenotes.service.SortingWorker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 
+private class FakeGenAiSummarizerClient(
+    var status: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
+    var result: TitleSummary = TitleSummary("", ""),
+    var exception: Exception? = null
+) : GenAiSummarizerClient {
+    var generateCalls = 0
+        private set
+
+    override suspend fun checkStatus(): CapabilityStatus = status
+
+    override suspend fun generateTitleAndSummary(transcript: String): TitleSummary {
+        generateCalls++
+        exception?.let { throw it }
+        return result
+    }
+}
+
 class HeuristicActionAndSummaryTest {
+
+    @get:Rule
+    val tempFolder = TemporaryFolder()
 
     // Fixed reference time: Monday, 2026-11-02 10:00:00 UTC
     private val zone = ZoneId.of("UTC")
@@ -138,5 +172,244 @@ class HeuristicActionAndSummaryTest {
             summary.summary.length < unpunctuated.length
         )
         assertTrue(summary.title.isNotBlank())
+    }
+
+    @Test
+    fun extractiveSummarizer_neverSplitsWordsAt60CharBoundary_andStripsFillerOpeners() = runTest {
+        val summarizer = ExtractiveSummarizer()
+
+        val longTranscript =
+            "So now I'd like to file issues on the repo for this app so that we can have our agents pick up new tasks."
+        val longResult = summarizer.summarize(longTranscript)
+        assertTrue(
+            "Expected title length <= 60, got ${longResult.title.length}: '${longResult.title}'",
+            longResult.title.length <= ExtractiveSummarizer.MAX_TITLE_CHARS
+        )
+        assertEquals("I'd like to file issues on the repo for this app so that we", longResult.title)
+        assertFalse(longResult.title.endsWith(" c"))
+        assertFalse(longResult.title.endsWith(" t"))
+
+        val testOpenerTranscript =
+            "this is a test voice note and First we'd like to make sure transcription works"
+        val testOpenerResult = summarizer.summarize(testOpenerTranscript)
+        assertTrue(testOpenerResult.title.length <= ExtractiveSummarizer.MAX_TITLE_CHARS)
+        assertFalse(testOpenerResult.title.lowercase().startsWith("this is a test"))
+        assertEquals("we'd like to make sure transcription works", testOpenerResult.title)
+
+        // Multi-sentence transcript: long test opener is penalized against real content sentence
+        val multiSentence =
+            "This is a test voice note checking audio levels in the hallway. " +
+                "Call the structural engineer before noon."
+        val multiResult = summarizer.summarize(multiSentence)
+        assertEquals("Call the structural engineer before noon", multiResult.title)
+
+        // Remind-me title remains intact for E2E expectations
+        val reminderResult = summarizer.summarize(
+            "Remind me to call the electrician tomorrow. Also buy copper wire for the kitchen."
+        )
+        assertEquals("Remind me to call the electrician tomorrow", reminderResult.title)
+    }
+
+    @Test
+    fun nanoSummarizer_producesTopicalTitleWhenAvailable_andDemotesCleanlyOnBusyOrUnavailable() = runTest {
+        val availableClient = FakeGenAiSummarizerClient(
+            status = CapabilityStatus.AVAILABLE,
+            result = TitleSummary(
+                title = "File issues on the repo",
+                summary = "File repository issues so agents can pick up new tasks."
+            )
+        )
+        val nanoAvailable = NanoSummarizer(client = availableClient, fallback = ExtractiveSummarizer())
+        assertEquals(CapabilityStatus.AVAILABLE, nanoAvailable.status())
+
+        val generated = nanoAvailable.summarize(
+            "So now I'd like to file issues on the repo for this app so that we can have our agents pick up new tasks."
+        )
+        assertEquals("File issues on the repo", generated.title)
+        assertEquals("File repository issues so agents can pick up new tasks.", generated.summary)
+        assertEquals(1, availableClient.generateCalls)
+
+        // BUSY surfaces CapabilityBusyException so the pipeline records degradation and demotes
+        val busyClient = FakeGenAiSummarizerClient(status = CapabilityStatus.BUSY)
+        val nanoBusy = NanoSummarizer(client = busyClient, fallback = ExtractiveSummarizer())
+        assertEquals(CapabilityStatus.BUSY, nanoBusy.status())
+        try {
+            nanoBusy.summarize("Remind me to call the electrician tomorrow.")
+            fail("Expected CapabilityBusyException when NanoSummarizer client is BUSY")
+        } catch (_: CapabilityBusyException) {
+            // Expected
+        }
+        assertEquals(0, busyClient.generateCalls)
+
+        // UNAVAILABLE demotes cleanly to ExtractiveSummarizer
+        val unavailableClient = FakeGenAiSummarizerClient(status = CapabilityStatus.UNAVAILABLE)
+        val nanoUnavailable = NanoSummarizer(client = unavailableClient, fallback = ExtractiveSummarizer())
+        assertEquals(CapabilityStatus.UNAVAILABLE, nanoUnavailable.status())
+        val fallbackResult = nanoUnavailable.summarize(
+            "this is a test voice note and First we'd like to make sure transcription works"
+        )
+        assertEquals("we'd like to make sure transcription works", fallbackResult.title)
+        assertEquals(0, unavailableClient.generateCalls)
+
+        // Blank generated title also demotes cleanly to ExtractiveSummarizer
+        val blankTitleClient = FakeGenAiSummarizerClient(
+            status = CapabilityStatus.AVAILABLE,
+            result = TitleSummary(title = "   ", summary = "")
+        )
+        val nanoBlank = NanoSummarizer(client = blankTitleClient, fallback = ExtractiveSummarizer())
+        val blankFallback = nanoBlank.summarize("Remind me to buy milk tomorrow.")
+        assertEquals("Remind me to buy milk tomorrow", blankFallback.title)
+        assertEquals(1, blankTitleClient.generateCalls)
+    }
+
+    @Test
+    fun mlKitResponseParser_parsesTwoLineOutputAndTruncatesLongTitleAtWordBoundary() {
+        val parsed = MlKitGenAiSummarizerClient.parseTitleSummaryResponse(
+            """
+            TITLE: File issues on the repo
+            SUMMARY: File repository issues so agents can pick up tasks.
+            """.trimIndent()
+        )
+        assertEquals("File issues on the repo", parsed.title)
+        assertEquals("File repository issues so agents can pick up tasks.", parsed.summary)
+
+        val overlong = MlKitGenAiSummarizerClient.parseTitleSummaryResponse(
+            """
+            **TITLE:** "Coordinate quarterly infrastructure audit with security and platform engineering teams"
+            **SUMMARY:** Schedule the audit review meeting for next week.
+            """.trimIndent()
+        )
+        assertTrue(overlong.title.length <= ExtractiveSummarizer.MAX_TITLE_CHARS)
+        assertEquals("Coordinate quarterly infrastructure audit with security and", overlong.title)
+        assertEquals("Schedule the audit review meeting for next week.", overlong.summary)
+
+        val unlabelled = MlKitGenAiSummarizerClient.parseTitleSummaryResponse("Just an unlabelled paragraph.")
+        assertEquals("", unlabelled.title)
+    }
+
+    @Test
+    fun sortingPipeline_usesFakeSummarizerWhenAvailable_andDemotesOnBusyOrFailure() = runTest {
+        val dsScope = CoroutineScope(Dispatchers.Unconfined + SupervisorJob())
+        try {
+            val transcript =
+                "So now I'd like to file issues on the repo for this app so that we can have our agents pick up new tasks."
+            val dsFile1 = tempFolder.newFile("sum_ok.preferences_pb").also { it.delete() }
+            val probe1 = CapabilityProbe(
+                checker = FakeCapabilityChecker(
+                    transcriber = CapabilityStatus.AVAILABLE,
+                    summarizer = CapabilityStatus.AVAILABLE,
+                    actions = CapabilityStatus.UNAVAILABLE
+                ),
+                dataStore = PreferenceDataStoreFactory.create(scope = dsScope, produceFile = { dsFile1 })
+            )
+            val dao1 = InMemoryFakeNoteDao()
+            val noteId1 = dao1.insert(
+                Note(createdAtEpochMs = 1_700_000_000_000L, audioPath = "/tmp/note1.m4a")
+            )
+            val fakeTopicalSummarizer = FakeSummarizer(
+                currentStatus = CapabilityStatus.AVAILABLE,
+                result = TitleSummary(
+                    title = "File issues on the repo",
+                    summary = "Create repo issues for agents to pick up new tasks."
+                )
+            )
+
+            val okOutcome = SortingWorker.executePipeline(
+                note = dao1.byId(noteId1)!!,
+                capabilityProbe = probe1,
+                transcriber = FakeTranscriber(result = Transcript(transcript, Tier.FULL)),
+                platformTranscriber = FakeTranscriber(),
+                nullTranscriber = NullTranscriber,
+                summarizer = fakeTopicalSummarizer,
+                extractor = HeuristicActionExtractor(clock = fixedClock),
+                bucketer = HeuristicBucketer(),
+                fallbackSummarizer = ExtractiveSummarizer(),
+                dao = dao1
+            )
+
+            assertEquals("File issues on the repo", okOutcome.updatedNote.title)
+            assertEquals("Create repo issues for agents to pick up new tasks.", okOutcome.updatedNote.summary)
+            assertTrue(okOutcome.updatedNote.stageStatus.contains("summarize:OK"))
+
+            // Runtime BUSY in NanoSummarizer demotes cleanly to ExtractiveSummarizer with word-boundary title
+            val dsFile2 = tempFolder.newFile("sum_busy.preferences_pb").also { it.delete() }
+            val probe2 = CapabilityProbe(
+                checker = FakeCapabilityChecker(
+                    transcriber = CapabilityStatus.AVAILABLE,
+                    summarizer = CapabilityStatus.AVAILABLE,
+                    actions = CapabilityStatus.UNAVAILABLE
+                ),
+                dataStore = PreferenceDataStoreFactory.create(scope = dsScope, produceFile = { dsFile2 })
+            )
+            val dao2 = InMemoryFakeNoteDao()
+            val noteId2 = dao2.insert(
+                Note(createdAtEpochMs = 1_700_000_000_000L, audioPath = "/tmp/note2.m4a")
+            )
+            val busyNanoSummarizer = NanoSummarizer(
+                client = FakeGenAiSummarizerClient(
+                    status = CapabilityStatus.AVAILABLE,
+                    exception = CapabilityBusyException()
+                ),
+                fallback = ExtractiveSummarizer()
+            )
+
+            val busyOutcome = SortingWorker.executePipeline(
+                note = dao2.byId(noteId2)!!,
+                capabilityProbe = probe2,
+                transcriber = FakeTranscriber(result = Transcript(transcript, Tier.FULL)),
+                platformTranscriber = FakeTranscriber(),
+                nullTranscriber = NullTranscriber,
+                summarizer = busyNanoSummarizer,
+                extractor = HeuristicActionExtractor(clock = fixedClock),
+                bucketer = HeuristicBucketer(),
+                fallbackSummarizer = ExtractiveSummarizer(),
+                dao = dao2
+            )
+
+            assertEquals("I'd like to file issues on the repo for this app so that we", busyOutcome.updatedNote.title)
+            assertEquals(NoteStatus.NEEDS_REVIEW.name, busyOutcome.updatedNote.status)
+            assertTrue(busyOutcome.updatedNote.stageStatus.contains("summarize:BUSY,summarize_fallback:OK"))
+
+            // Runtime non-busy exception in NanoSummarizer also falls back cleanly to ExtractiveSummarizer
+            val dsFile3 = tempFolder.newFile("sum_fail.preferences_pb").also { it.delete() }
+            val probe3 = CapabilityProbe(
+                checker = FakeCapabilityChecker(
+                    transcriber = CapabilityStatus.AVAILABLE,
+                    summarizer = CapabilityStatus.AVAILABLE,
+                    actions = CapabilityStatus.UNAVAILABLE
+                ),
+                dataStore = PreferenceDataStoreFactory.create(scope = dsScope, produceFile = { dsFile3 })
+            )
+            val dao3 = InMemoryFakeNoteDao()
+            val noteId3 = dao3.insert(
+                Note(createdAtEpochMs = 1_700_000_000_000L, audioPath = "/tmp/note3.m4a")
+            )
+            val failingNanoSummarizer = NanoSummarizer(
+                client = FakeGenAiSummarizerClient(
+                    status = CapabilityStatus.AVAILABLE,
+                    exception = IllegalStateException("Simulated Prompt API failure")
+                ),
+                fallback = ExtractiveSummarizer()
+            )
+
+            val failOutcome = SortingWorker.executePipeline(
+                note = dao3.byId(noteId3)!!,
+                capabilityProbe = probe3,
+                transcriber = FakeTranscriber(result = Transcript(transcript, Tier.FULL)),
+                platformTranscriber = FakeTranscriber(),
+                nullTranscriber = NullTranscriber,
+                summarizer = failingNanoSummarizer,
+                extractor = HeuristicActionExtractor(clock = fixedClock),
+                bucketer = HeuristicBucketer(),
+                fallbackSummarizer = ExtractiveSummarizer(),
+                dao = dao3
+            )
+
+            assertEquals("I'd like to file issues on the repo for this app so that we", failOutcome.updatedNote.title)
+            assertEquals(NoteStatus.NEEDS_REVIEW.name, failOutcome.updatedNote.status)
+            assertTrue(failOutcome.updatedNote.stageStatus.contains("summarize:FAILED,summarize_fallback:OK"))
+        } finally {
+            dsScope.cancel()
+        }
     }
 }
