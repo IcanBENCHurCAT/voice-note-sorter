@@ -26,6 +26,8 @@ interface CapabilityChecker {
     suspend fun checkSummarizer(): CapabilityStatus
     suspend fun checkActionExtractor(): CapabilityStatus
     fun versionFingerprint(): String
+    suspend fun downloadTranscriber(): Boolean = false
+    suspend fun downloadFoundationModel(): Boolean = false
 }
 
 /**
@@ -62,6 +64,15 @@ class DeviceCapabilityChecker(
     override suspend fun checkSummarizer(): CapabilityStatus = probeFoundationModelStatus()
 
     override suspend fun checkActionExtractor(): CapabilityStatus = probeFoundationModelStatus()
+
+    override suspend fun downloadTranscriber(): Boolean = nanoTranscriber.download()
+
+    override suspend fun downloadFoundationModel(): Boolean {
+        if (!isAiCoreInstalledAndEnabled()) {
+            return false
+        }
+        return promptClient.download()
+    }
 
     override fun versionFingerprint(): String {
         val pm = context.packageManager
@@ -143,6 +154,18 @@ class CapabilityProbe(
 
     suspend fun actionExtractorStatus(): CapabilityStatus =
         getOrProbe(KEY_ACTIONS) { checker.checkActionExtractor() }
+
+    suspend fun downloadTranscriber(): Boolean {
+        val ok = checker.downloadTranscriber()
+        invalidate()
+        return ok
+    }
+
+    suspend fun downloadFoundationModel(): Boolean {
+        val ok = checker.downloadFoundationModel()
+        invalidate()
+        return ok
+    }
 
     /**
      * Resolves the highest ladder tier the device currently supports from
