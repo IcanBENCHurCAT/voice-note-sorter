@@ -228,6 +228,8 @@ class MainActivity : ComponentActivity() {
                 var summarizerStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
                 var actionExtractorStatus by remember { mutableStateOf(CapabilityStatus.UNAVAILABLE) }
                 var isProbingCapabilities by remember { mutableStateOf(false) }
+                var isDownloadingTranscriber by remember { mutableStateOf(false) }
+                var isDownloadingFoundationModel by remember { mutableStateOf(false) }
                 var storageStats by remember { mutableStateOf(StorageStats(0L, 0L, 0)) }
                 val isAutoDeleteOldAudioEnabled by storageManager.isAutoDeleteOldAudioEnabled.collectAsState(initial = false)
                 val isDeveloperModeEnabled by storageManager.isDeveloperModeEnabled.collectAsState(initial = false)
@@ -395,7 +397,10 @@ class MainActivity : ComponentActivity() {
                                                 isLoading = isProbingCapabilities,
                                                 storageStats = storageStats,
                                                 isAutoDeleteOldAudioEnabled = isAutoDeleteOldAudioEnabled,
-                                                isDeveloperModeEnabled = isDeveloperModeEnabled
+                                                isDeveloperModeEnabled = isDeveloperModeEnabled,
+                                                isDownloadingTranscriber = isDownloadingTranscriber,
+                                                isDownloadingSummarizer = isDownloadingFoundationModel,
+                                                isDownloadingActionExtractor = isDownloadingFoundationModel
                                             ),
                                             onBack = { backStack.removeLastOrNull() },
                                             onRefreshProbe = {
@@ -403,6 +408,45 @@ class MainActivity : ComponentActivity() {
                                                     capabilityProbe.invalidate()
                                                     probeAllCapabilities()
                                                     refreshStorageStats()
+                                                }
+                                            },
+                                            onDownloadTranscriber = {
+                                                if (!isDownloadingTranscriber) {
+                                                    scope.launch {
+                                                        isDownloadingTranscriber = true
+                                                        try {
+                                                            capabilityProbe.downloadTranscriber()
+                                                            probeAllCapabilities()
+                                                        } finally {
+                                                            isDownloadingTranscriber = false
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            onDownloadSummarizer = {
+                                                if (!isDownloadingFoundationModel) {
+                                                    scope.launch {
+                                                        isDownloadingFoundationModel = true
+                                                        try {
+                                                            capabilityProbe.downloadFoundationModel()
+                                                            probeAllCapabilities()
+                                                        } finally {
+                                                            isDownloadingFoundationModel = false
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            onDownloadActionExtractor = {
+                                                if (!isDownloadingFoundationModel) {
+                                                    scope.launch {
+                                                        isDownloadingFoundationModel = true
+                                                        try {
+                                                            capabilityProbe.downloadFoundationModel()
+                                                            probeAllCapabilities()
+                                                        } finally {
+                                                            isDownloadingFoundationModel = false
+                                                        }
+                                                    }
                                                 }
                                             },
                                             onToggleAutoDeleteOldAudio = { enabled ->

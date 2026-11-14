@@ -59,7 +59,10 @@ data class CapabilitySettingsUiState(
     val isLoading: Boolean = false,
     val storageStats: StorageStats = StorageStats(0L, 0L, 0),
     val isAutoDeleteOldAudioEnabled: Boolean = false,
-    val isDeveloperModeEnabled: Boolean = false
+    val isDeveloperModeEnabled: Boolean = false,
+    val isDownloadingTranscriber: Boolean = false,
+    val isDownloadingSummarizer: Boolean = false,
+    val isDownloadingActionExtractor: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,7 +73,10 @@ fun SettingsScreen(
     onRefreshProbe: () -> Unit = {},
     onToggleAutoDeleteOldAudio: (Boolean) -> Unit = {},
     onToggleDeveloperMode: (Boolean) -> Unit = {},
-    onDeleteAllNotes: () -> Unit = {}
+    onDeleteAllNotes: () -> Unit = {},
+    onDownloadTranscriber: () -> Unit = {},
+    onDownloadSummarizer: () -> Unit = {},
+    onDownloadActionExtractor: () -> Unit = {}
 ) {
     var showEnableRetentionDialog by remember { mutableStateOf(false) }
     var showDeleteAllDialog by remember { mutableStateOf(false) }
@@ -172,7 +178,9 @@ fun SettingsScreen(
                     name = stringResource(R.string.cap_transcription_name),
                     status = uiState.transcriberStatus,
                     description = stringResource(R.string.cap_transcription_desc),
-                    unavailableReason = stringResource(R.string.cap_transcription_unavailable_reason)
+                    unavailableReason = stringResource(R.string.cap_transcription_unavailable_reason),
+                    isDownloading = uiState.isDownloadingTranscriber,
+                    onDownloadClick = onDownloadTranscriber
                 )
             }
 
@@ -181,7 +189,9 @@ fun SettingsScreen(
                     name = stringResource(R.string.cap_summarization_name),
                     status = uiState.summarizerStatus,
                     description = stringResource(R.string.cap_summarization_desc),
-                    unavailableReason = stringResource(R.string.cap_summarization_unavailable_reason)
+                    unavailableReason = stringResource(R.string.cap_summarization_unavailable_reason),
+                    isDownloading = uiState.isDownloadingSummarizer,
+                    onDownloadClick = onDownloadSummarizer
                 )
             }
 
@@ -190,7 +200,9 @@ fun SettingsScreen(
                     name = stringResource(R.string.cap_action_extraction_name),
                     status = uiState.actionExtractorStatus,
                     description = stringResource(R.string.cap_action_extraction_desc),
-                    unavailableReason = stringResource(R.string.cap_action_extraction_unavailable_reason)
+                    unavailableReason = stringResource(R.string.cap_action_extraction_unavailable_reason),
+                    isDownloading = uiState.isDownloadingActionExtractor,
+                    onDownloadClick = onDownloadActionExtractor
                 )
             }
 
@@ -363,7 +375,9 @@ fun CapabilityItemCard(
     name: String,
     status: CapabilityStatus,
     description: String,
-    unavailableReason: String
+    unavailableReason: String,
+    isDownloading: Boolean = false,
+    onDownloadClick: (() -> Unit)? = null
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -382,7 +396,11 @@ fun CapabilityItemCard(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
-                StatusChip(status = status)
+                StatusChip(
+                    status = status,
+                    isDownloading = isDownloading,
+                    onDownloadClick = onDownloadClick
+                )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -393,12 +411,18 @@ fun CapabilityItemCard(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            if (status != CapabilityStatus.AVAILABLE) {
+            if (status != CapabilityStatus.AVAILABLE || isDownloading) {
+                val statusNote = when {
+                    isDownloading -> stringResource(R.string.cap_downloading_reason)
+                    status == CapabilityStatus.DOWNLOADABLE -> stringResource(R.string.cap_downloadable_reason)
+                    status == CapabilityStatus.BUSY -> stringResource(R.string.cap_busy_reason)
+                    else -> unavailableReason
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = unavailableReason,
+                    text = statusNote,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -408,30 +432,41 @@ fun CapabilityItemCard(
 }
 
 @Composable
-fun StatusChip(status: CapabilityStatus) {
-    val (label, chipColors) = when (status) {
-        CapabilityStatus.AVAILABLE -> Pair(
+fun StatusChip(
+    status: CapabilityStatus,
+    isDownloading: Boolean = false,
+    onDownloadClick: (() -> Unit)? = null
+) {
+    val (label, chipColors) = when {
+        isDownloading -> Pair(
+            stringResource(R.string.status_downloading),
+            SuggestionChipDefaults.suggestionChipColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                labelColor = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+        )
+        status == CapabilityStatus.AVAILABLE -> Pair(
             stringResource(R.string.status_available),
             SuggestionChipDefaults.suggestionChipColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 labelColor = MaterialTheme.colorScheme.onPrimaryContainer
             )
         )
-        CapabilityStatus.DOWNLOADABLE -> Pair(
+        status == CapabilityStatus.DOWNLOADABLE -> Pair(
             stringResource(R.string.status_downloadable),
             SuggestionChipDefaults.suggestionChipColors(
                 containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                 labelColor = MaterialTheme.colorScheme.onTertiaryContainer
             )
         )
-        CapabilityStatus.BUSY -> Pair(
+        status == CapabilityStatus.BUSY -> Pair(
             stringResource(R.string.status_busy),
             SuggestionChipDefaults.suggestionChipColors(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 labelColor = MaterialTheme.colorScheme.onSecondaryContainer
             )
         )
-        CapabilityStatus.UNAVAILABLE -> Pair(
+        else -> Pair(
             stringResource(R.string.status_unavailable),
             SuggestionChipDefaults.suggestionChipColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -441,7 +476,12 @@ fun StatusChip(status: CapabilityStatus) {
     }
 
     SuggestionChip(
-        onClick = {},
+        onClick = {
+            if (!isDownloading && status == CapabilityStatus.DOWNLOADABLE) {
+                onDownloadClick?.invoke()
+            }
+        },
+        enabled = !isDownloading,
         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
         colors = chipColors,
         border = null

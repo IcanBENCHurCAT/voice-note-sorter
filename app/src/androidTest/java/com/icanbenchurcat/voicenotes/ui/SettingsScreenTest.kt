@@ -159,4 +159,26 @@ class SettingsScreenTest {
 
         assertTrue(toggledValue == true)
     }
+
+    @Test
+    fun downloadableStatusChip_triggersDownloadCallback_andShowsDownloadableCopy() {
+        var downloadClicked = false
+
+        composeTestRule.setContent {
+            SettingsScreen(
+                uiState = CapabilitySettingsUiState(
+                    tier = Tier.CORE,
+                    transcriberStatus = CapabilityStatus.AVAILABLE,
+                    summarizerStatus = CapabilityStatus.DOWNLOADABLE,
+                    actionExtractorStatus = CapabilityStatus.DOWNLOADABLE
+                ),
+                onBack = {},
+                onDownloadSummarizer = { downloadClicked = true }
+            )
+        }
+
+        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Note Summarisation"))
+        composeTestRule.onAllNodes(hasText("Downloadable"))[0].performClick()
+        assertTrue(downloadClicked)
+    }
 }
