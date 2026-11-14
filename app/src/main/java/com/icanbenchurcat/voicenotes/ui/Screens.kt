@@ -426,7 +426,7 @@ fun NotesListScreen(
 
                             if (note.status == NoteStatus.NEEDS_REVIEW.name) {
                                 SuggestionChip(
-                                    onClick = {},
+                                    onClick = { onOpen(note) },
                                     label = {
                                         Text(
                                             text = "Needs review",
@@ -445,7 +445,7 @@ fun NotesListScreen(
                             if (noteTasks != null && noteTasks.second > 0) {
                                 val (doneCount, totalCount) = noteTasks
                                 SuggestionChip(
-                                    onClick = {},
+                                    onClick = { onOpen(note) },
                                     label = {
                                         Text(
                                             text = "Tasks $doneCount/$totalCount",
