@@ -395,6 +395,7 @@ class NanoBucketer(
             RegexOption.IGNORE_CASE
         )
         private val emptyTagTokens = setOf("none", "n/a", "na", "null", "-")
+        private val tagSanitizeRegex = Regex("[^a-z0-9-]+")
 
         internal fun buildPrompt(transcript: String, profile: BucketProfile): String {
             val bounded = transcript.trim().take(MAX_PROMPT_TRANSCRIPT_CHARS)
@@ -470,7 +471,7 @@ class NanoBucketer(
                     token.trim()
                         .removePrefix("#")
                         .lowercase(Locale.ROOT)
-                        .replace(Regex("[^a-z0-9-]+"), "-")
+                        .replace(tagSanitizeRegex, "-")
                         .trim('-')
                 }
                 .filter { it.isNotEmpty() && it !in emptyTagTokens }
@@ -490,8 +491,10 @@ private fun stripCodeFences(raw: String): String {
     return lines.subList(startIndex, endIndex).joinToString("\n").trim()
 }
 
+private val proseWhitespaceRegex = Regex("\\s+")
+
 private fun cleanProseValue(raw: String): String {
-    var text = raw.trim().replace(Regex("\\s+"), " ")
+    var text = raw.trim().replace(proseWhitespaceRegex, " ")
     text = text.removePrefix("**").removeSuffix("**").trim()
     if ((text.startsWith("\"") && text.endsWith("\"")) ||
         (text.startsWith("'") && text.endsWith("'")) ||

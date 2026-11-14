@@ -11,6 +11,7 @@ import java.time.Month
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Tier 2 filing: deterministic keyword heuristics over the transcript.
@@ -88,6 +89,10 @@ class HeuristicBucketer : Bucketer {
     }
 
     companion object {
+        private val whitespaceRegex = Regex("\\s+")
+        private val tagSanitizeRegex = Regex("[^a-z0-9]+")
+        private val wordBoundaryPatternCache = ConcurrentHashMap<String, Regex>()
+
         fun matchesKeyword(text: String, keyword: String): Boolean =
             countWordBoundaryMatches(text, keyword) > 0
 
@@ -99,17 +104,20 @@ class HeuristicBucketer : Bucketer {
         }
 
         private fun buildWordBoundaryPattern(keyword: String): Regex {
-            val tokens = keyword.lowercase()
-                .split(Regex("\\s+"))
-                .filter { it.isNotEmpty() }
-                .joinToString("\\s+") { Regex.escape(it) }
-            return Regex("(?<![a-z0-9])$tokens(?![a-z0-9])", RegexOption.IGNORE_CASE)
+            val normalizedKey = keyword.lowercase(Locale.ROOT)
+            return wordBoundaryPatternCache.getOrPut(normalizedKey) {
+                val tokens = normalizedKey
+                    .split(whitespaceRegex)
+                    .filter { it.isNotEmpty() }
+                    .joinToString("\\s+") { Regex.escape(it) }
+                Regex("(?<![a-z0-9])$tokens(?![a-z0-9])", RegexOption.IGNORE_CASE)
+            }
         }
 
         fun keywordToTag(keyword: String): String =
             keyword.trim()
-                .lowercase()
-                .replace(Regex("[^a-z0-9]+"), "-")
+                .lowercase(Locale.ROOT)
+                .replace(tagSanitizeRegex, "-")
                 .trim('-')
     }
 }
