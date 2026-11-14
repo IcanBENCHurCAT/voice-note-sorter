@@ -352,7 +352,7 @@ class SortingWorker(
             var stage4ModelSucceeded = false
             var resolvedAssignmentTier: Tier? = null
             try {
-                val assignment = try {
+                val rawAssignment = try {
                     val result = activeBucketer.assign(currentNote.transcript, profile)
                     stages += "bucket:OK"
                     stage4ModelSucceeded = activeBucketer !== fallbackBucketer &&
@@ -370,6 +370,22 @@ class SortingWorker(
                         fallbackResult
                     } else {
                         null
+                    }
+                }
+                val assignment = rawAssignment?.let { raw ->
+                    if (
+                        raw.bucketKind == "INBOX" &&
+                        persistedActions.isNotEmpty() &&
+                        profile.buckets.any { it.kind == "TASK" }
+                    ) {
+                        raw.copy(
+                            bucketKind = "TASK",
+                            confidence = 0.8f,
+                            score = persistedActions.size,
+                            needsReview = false
+                        )
+                    } else {
+                        raw
                     }
                 }
                 if (assignment != null) {
