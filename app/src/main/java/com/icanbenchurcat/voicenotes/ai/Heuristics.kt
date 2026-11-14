@@ -130,9 +130,11 @@ object TranscriptSegmenter {
         RegexOption.IGNORE_CASE
     )
     private val purposeClauseTailRegex = Regex(
-        "\\b(?:so\\s+that|in\\s+order\\s+to)\\b[^.!?]*$",
+        "\\b(?:so\\s+that|in\\s+order\\s+(?:to|for|that))\\b[^.!?]*$",
         RegexOption.IGNORE_CASE
     )
+    private val trailingInTokenRegex = Regex("(?:^|\\s)in$", RegexOption.IGNORE_CASE)
+    private val inOrderClauseStartRegex = Regex("^order\\s+(?:to|for|that)\\b", RegexOption.IGNORE_CASE)
 
     private const val UNPUNCTUATED_WORD_THRESHOLD = 14
 
@@ -163,9 +165,13 @@ object TranscriptSegmenter {
 
         val clauses = mutableListOf<String>()
         for (clause in rawClauses) {
+            val isInOrderSplit = clauses.isNotEmpty() &&
+                trailingInTokenRegex.containsMatchIn(clauses.last()) &&
+                inOrderClauseStartRegex.containsMatchIn(clause)
             if (clauses.isNotEmpty() && (
                     clauses.last().endsWith(" to", ignoreCase = true) ||
                         clauses.last().endsWith(" also", ignoreCase = true) ||
+                        isInOrderSplit ||
                         purposeClauseTailRegex.containsMatchIn(clauses.last())
                     )
             ) {
