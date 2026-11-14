@@ -139,4 +139,47 @@ class HeuristicActionAndSummaryTest {
         )
         assertTrue(summary.title.isNotBlank())
     }
+
+    @Test
+    fun extractiveSummarizer_neverSplitsWordsAt60CharBoundary_andStripsFillerOpeners() = runTest {
+        val summarizer = ExtractiveSummarizer()
+
+        val truncated = ExtractiveSummarizer.truncateAtWordBoundary(
+            "Remember to order anniversary flowers and chocolates for Sarah this weekend"
+        )
+        assertEquals(
+            "Remember to order anniversary flowers and chocolates for",
+            truncated
+        )
+        assertTrue(truncated.length <= ExtractiveSummarizer.MAX_TITLE_CHARS)
+
+        val giftNote = summarizer.summarize(
+            "I need to do something sweet for Sarah this week, like some flowers or chocolate or something."
+        )
+        assertTrue(giftNote.title.length <= ExtractiveSummarizer.MAX_TITLE_CHARS)
+        assertTrue(giftNote.title.contains("sweet"))
+        assertFalse(
+            "Title should not cut mid-word, got: ${giftNote.title}",
+            giftNote.title.endsWith("flow") || giftNote.title.endsWith("choc")
+        )
+
+        val fillerTranscript = """
+            Testing one two three.
+            This is a test voice note, and remember to renew the studio lease before Friday.
+            Call Alex about the lighting rig tomorrow morning.
+        """.trimIndent()
+        val cleaned = summarizer.summarize(fillerTranscript)
+        assertFalse(
+            "Filler opener leaked into title: ${cleaned.title}",
+            cleaned.title.startsWith("Testing", ignoreCase = true) ||
+                cleaned.title.startsWith("This is a test", ignoreCase = true)
+        )
+        assertTrue(cleaned.title.length <= ExtractiveSummarizer.MAX_TITLE_CHARS)
+        assertTrue(cleaned.summary.isNotBlank())
+
+        val prefixedSentence = summarizer.summarize(
+            "Okay so um this is just a test, first renew the studio lease before Friday."
+        )
+        assertEquals("Renew the studio lease before Friday", prefixedSentence.title)
+    }
 }
