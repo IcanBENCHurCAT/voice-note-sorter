@@ -2,6 +2,7 @@
 
 package com.icanbenchurcat.voicenotes.ai
 
+import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.prompt.Generation
@@ -20,6 +21,7 @@ import java.util.Locale
 interface GenAiPromptClient {
     suspend fun checkStatus(): CapabilityStatus
     suspend fun generateText(prompt: String): String
+    suspend fun download(): Boolean = false
 }
 
 /**
@@ -50,6 +52,31 @@ object MlKitGenAiPromptClient : GenAiPromptClient {
             }
         } catch (_: Throwable) {
             CapabilityStatus.UNAVAILABLE
+        } finally {
+            runCatching { model.close() }
+        }
+    }
+
+    override suspend fun download(): Boolean {
+        val model = try {
+            Generation.getClient()
+        } catch (_: Throwable) {
+            return false
+        }
+        return try {
+            var completed = false
+            model.download().collect { status ->
+                when (status) {
+                    is DownloadStatus.DownloadCompleted -> completed = true
+                    is DownloadStatus.DownloadFailed -> throw status.e
+                    else -> Unit
+                }
+            }
+            completed || model.checkStatus() == FeatureStatus.AVAILABLE
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            false
         } finally {
             runCatching { model.close() }
         }

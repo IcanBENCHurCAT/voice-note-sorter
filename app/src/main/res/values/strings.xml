@@ -72,8 +72,12 @@
     <string name="cap_action_extraction_unavailable_reason">Advanced model extraction requires on-device foundation models; falls back to deterministic heuristic parsing.</string>
     <string name="status_available">Available</string>
     <string name="status_downloadable">Downloadable</string>
+    <string name="status_downloading">Downloading…</string>
     <string name="status_busy">Busy</string>
     <string name="status_unavailable">Unavailable</string>
+    <string name="cap_downloadable_reason">AICore found — on-device model is ready to download. Tap Downloadable to fetch it.</string>
+    <string name="cap_downloading_reason">Downloading on-device model via AICore…</string>
+    <string name="cap_busy_reason">On-device AI service is temporarily busy; it will be retried automatically.</string>
     <string name="action_refresh_capabilities">Re-check capabilities</string>
     <string name="audio_missing_error">Audio recording not available on device</string>
     <string name="cd_play_audio">Play original audio</string>
