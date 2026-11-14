@@ -226,4 +226,45 @@ class NotesListFilterAndMetadataTest {
         composeTestRule.onNodeWithText("View all notes").performClick()
         composeTestRule.onNodeWithText("Sorted Note").assertIsDisplayed()
     }
+
+    @Test
+    fun tappingNeedsReviewBadgeAndTasksChip_opensNoteDetail() {
+        val reviewNote = Note(
+            id = 42L,
+            createdAtEpochMs = 1000L,
+            audioPath = "/fake/42.m4a",
+            title = "Ambiguous Note",
+            summary = "Needs bucket confirmation",
+            bucketKind = "INBOX",
+            status = NoteStatus.NEEDS_REVIEW.name
+        )
+        val tasks = listOf(
+            ActionItemWithNote(id = 1L, noteId = 42L, text = "Confirm bucket", done = false)
+        )
+        val openedNotes = mutableListOf<Long>()
+
+        composeTestRule.setContent {
+            NotesListScreen(
+                notes = listOf(reviewNote),
+                tasks = tasks,
+                onOpen = { openedNotes.add(it.id) }
+            )
+        }
+
+        // Tapping the "Needs review" badge opens the note
+        composeTestRule.onNodeWithContentDescription("Needs review badge").performClick()
+        assertEquals(listOf(42L), openedNotes)
+
+        // Tapping the "Tasks 0/1" chip opens the note
+        composeTestRule.onNodeWithText("Tasks 0/1").performClick()
+        assertEquals(listOf(42L, 42L), openedNotes)
+
+        // Tapping elsewhere on the card still opens the note
+        composeTestRule.onNodeWithText("Ambiguous Note").performClick()
+        assertEquals(listOf(42L, 42L, 42L), openedNotes)
+
+        // Top "Needs review (1)" filter chip still toggles the filter
+        composeTestRule.onNodeWithContentDescription("Filter Needs Review notes").performClick()
+        composeTestRule.onNodeWithText("Ambiguous Note").assertIsDisplayed()
+    }
 }
