@@ -139,4 +139,47 @@ class HeuristicActionAndSummaryTest {
         )
         assertTrue(summary.title.isNotBlank())
     }
+
+    @Test
+    fun segmenter_doesNotSplitPurposeClauseAtBareActionVerb() {
+        val transcript = "So now I'd like to file issues on the repo for this app so that we can have our agents pick up new tasks."
+        val segments = TranscriptSegmenter.segment(transcript)
+
+        assertEquals(listOf(transcript), segments)
+        assertFalse(segments.any { it.trim().trimEnd('.').equals("pick up new tasks", ignoreCase = true) })
+    }
+
+    @Test
+    fun actionExtractor_extractsMainClauseWithFileIssuesAndIgnoresTrailingPurposeFragment() = runTest {
+        val extractor = HeuristicActionExtractor(clock = fixedClock)
+        val transcript = "So now I'd like to file issues on the repo for this app so that we can have our agents pick up new tasks."
+
+        val actions = extractor.extract(transcript)
+
+        assertEquals(1, actions.size)
+        assertTrue(actions.any { it.text.contains("file issues", ignoreCase = true) })
+        assertFalse(actions.any { it.text.trim().trimEnd('.').equals("pick up new tasks", ignoreCase = true) })
+
+        // Regression checks for existing action patterns and date parsing
+        val remindActions = extractor.extract("remind me to pick up milk")
+        assertEquals(1, remindActions.size)
+        assertTrue(remindActions.first().text.contains("pick up milk", ignoreCase = true))
+        assertNull(remindActions.first().dueAtEpochMs)
+
+        val callActions = extractor.extract("call Sara tomorrow")
+        assertEquals(1, callActions.size)
+        assertTrue(callActions.first().text.contains("call Sara tomorrow", ignoreCase = true))
+        assertNotNull(callActions.first().dueAtEpochMs)
+        val callDueDateTime = LocalDateTime.ofInstant(
+            Instant.ofEpochMilli(callActions.first().dueAtEpochMs!!),
+            zone
+        )
+        assertEquals(LocalDateTime.of(2026, 11, 3, 9, 0), callDueDateTime)
+
+        val sweetNoteActions = extractor.extract(
+            "I need to do something sweet for Sarah this week, like some flowers or chocolate or something."
+        )
+        assertEquals(1, sweetNoteActions.size)
+        assertTrue(sweetNoteActions.first().text.contains("need to do something sweet for Sarah", ignoreCase = true))
+    }
 }

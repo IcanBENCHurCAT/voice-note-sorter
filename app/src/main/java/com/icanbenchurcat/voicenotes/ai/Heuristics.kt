@@ -129,6 +129,10 @@ object TranscriptSegmenter {
             ")\\b)",
         RegexOption.IGNORE_CASE
     )
+    private val purposeClauseTailRegex = Regex(
+        "\\b(?:so\\s+that|in\\s+order\\s+to)\\b[^.!?]*$",
+        RegexOption.IGNORE_CASE
+    )
 
     private const val UNPUNCTUATED_WORD_THRESHOLD = 14
 
@@ -159,7 +163,12 @@ object TranscriptSegmenter {
 
         val clauses = mutableListOf<String>()
         for (clause in rawClauses) {
-            if (clauses.isNotEmpty() && (clauses.last().endsWith(" to", ignoreCase = true) || clauses.last().endsWith(" also", ignoreCase = true))) {
+            if (clauses.isNotEmpty() && (
+                    clauses.last().endsWith(" to", ignoreCase = true) ||
+                        clauses.last().endsWith(" also", ignoreCase = true) ||
+                        purposeClauseTailRegex.containsMatchIn(clauses.last())
+                    )
+            ) {
                 clauses[clauses.lastIndex] = clauses.last() + " " + clause
             } else {
                 clauses += clause
@@ -380,7 +389,15 @@ class HeuristicActionExtractor(
             "cancel",
             "prepare",
             "bring",
-            "drop off"
+            "drop off",
+            "file",
+            "create",
+            "open",
+            "write",
+            "build",
+            "fix",
+            "debug",
+            "investigate"
         )
 
         private val imperativeStarterRegex = Regex(
@@ -391,7 +408,7 @@ class HeuristicActionExtractor(
         )
 
         private val modalActionVerbRegex = Regex(
-            "\\b(?:i\\s+|we\\s+)?(?:should|will|otta|gotta|need\\s+to|have\\s+to|must|remind\\s+me\\s+to|remember\\s+to|don't\\s+forget\\s+to)\\s+(" +
+            "\\b(?:(?:i|we)\\s+(?:should|will|otta|gotta|need\\s+to|have\\s+to|must|want\\s+to|would\\s+like\\s+to)|(?:i'd|we'd)\\s+like\\s+to|let's|lets|need\\s+to|have\\s+to|must|remind\\s+me\\s+to|remember\\s+to|don't\\s+forget\\s+to)\\s+(?:also\\s+|please\\s+)*(" +
                 actionVerbs.joinToString("|") { Regex.escape(it) } +
                 ")\\b",
             RegexOption.IGNORE_CASE
