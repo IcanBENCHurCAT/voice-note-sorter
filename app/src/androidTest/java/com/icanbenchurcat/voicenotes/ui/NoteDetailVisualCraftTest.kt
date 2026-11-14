@@ -258,6 +258,45 @@ class NoteDetailVisualCraftTest {
         composeTestRule.onNodeWithText("Audio recording not available on device").assertIsDisplayed()
     }
 
+    @Test
+    fun noteDetail_withValidAudio_showsDurationBeforePlayPressed() {
+        val note = Note(
+            id = 13L,
+            createdAtEpochMs = 1000L,
+            audioPath = "/valid/audio_file.m4a",
+            title = "Recorded note",
+            transcript = "I need to do something sweet for Sarah this week.",
+            bucketKind = "TASK",
+            tierUsed = "CORE",
+            stageStatus = "",
+            status = NoteStatus.SORTED.name
+        )
+
+        composeTestRule.setContent {
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            val playbackState = androidx.compose.runtime.remember {
+                com.icanbenchurcat.voicenotes.audio.AudioPlaybackState(
+                    audioPath = note.audioPath,
+                    coroutineScope = scope,
+                    fileExistsChecker = { true },
+                    durationReader = { 65_000 }
+                )
+            }
+            NoteDetailScreen(
+                note = note,
+                buckets = listOf(Bucket("TASK", "Tasks")),
+                hasAudioFile = true,
+                audioPlaybackState = playbackState,
+                onConfirmOrChangeBucket = {}
+            )
+        }
+
+        composeTestRule.onNodeWithText("Original audio").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Play").assertIsDisplayed()
+        composeTestRule.onNodeWithText("0:00").assertIsDisplayed()
+        composeTestRule.onNodeWithText("1:05").assertIsDisplayed()
+    }
+
     private fun contrast(a: Color, b: Color): Double {
         val l1 = a.luminance().toDouble()
         val l2 = b.luminance().toDouble()

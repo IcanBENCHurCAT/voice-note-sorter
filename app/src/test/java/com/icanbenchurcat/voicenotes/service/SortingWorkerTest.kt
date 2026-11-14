@@ -513,4 +513,38 @@ class SortingWorkerTest {
         assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
         assertTrue(outcome.updatedNote.stageStatus.contains("summarize:BUSY"))
     }
+
+    @Test
+    fun inboxKeywordFallback_promotedToTaskWhenActionsExtracted() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.UNAVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE
+            ),
+            dataStore
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(
+                result = Transcript("Pay the water bill tomorrow.", Tier.CORE)
+            ),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao
+        )
+
+        assertEquals(1, outcome.extractedActions.size)
+        assertEquals("TASK", outcome.updatedNote.bucketKind)
+        assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
+        assertEquals("transcribe:OK,summarize:OK,actions:OK,bucket:OK", outcome.updatedNote.stageStatus)
+    }
 }
