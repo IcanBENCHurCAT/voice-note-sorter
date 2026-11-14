@@ -139,4 +139,99 @@ class HeuristicActionAndSummaryTest {
         )
         assertTrue(summary.title.isNotBlank())
     }
+
+    @Test
+    fun segmenter_doesNotSplitPurposeClauseAtBareActionVerb() {
+        val transcript = "So now I'd like to file issues on the repo for this app so that we can have our agents pick up new tasks."
+        val segments = TranscriptSegmenter.segment(transcript)
+
+        assertEquals(listOf(transcript), segments)
+        assertFalse(segments.any { it.trim().trimEnd('.').equals("pick up new tasks", ignoreCase = true) })
+    }
+
+    @Test
+    fun actionExtractor_extractsMainClauseWithFileIssuesAndIgnoresTrailingPurposeFragment() = runTest {
+        val extractor = HeuristicActionExtractor(clock = fixedClock)
+        val transcript = "So now I'd like to file issues on the repo for this app so that we can have our agents pick up new tasks."
+
+        val actions = extractor.extract(transcript)
+
+        assertEquals(1, actions.size)
+        assertTrue(actions.any { it.text.contains("file issues", ignoreCase = true) })
+        assertFalse(actions.any { it.text.trim().trimEnd('.').equals("pick up new tasks", ignoreCase = true) })
+
+        // Regression checks for existing action patterns and date parsing
+        val remindActions = extractor.extract("remind me to pick up milk")
+        assertEquals(1, remindActions.size)
+        assertTrue(remindActions.first().text.contains("pick up milk", ignoreCase = true))
+        assertNull(remindActions.first().dueAtEpochMs)
+
+        val callActions = extractor.extract("call Sara tomorrow")
+        assertEquals(1, callActions.size)
+        assertTrue(callActions.first().text.contains("call Sara tomorrow", ignoreCase = true))
+        assertNotNull(callActions.first().dueAtEpochMs)
+        val callDueDateTime = LocalDateTime.ofInstant(
+            Instant.ofEpochMilli(callActions.first().dueAtEpochMs!!),
+            zone
+        )
+        assertEquals(LocalDateTime.of(2026, 11, 3, 9, 0), callDueDateTime)
+
+        val sweetNoteActions = extractor.extract(
+            "I need to do something sweet for Sarah this week, like some flowers or chocolate or something."
+        )
+        assertEquals(1, sweetNoteActions.size)
+        assertTrue(sweetNoteActions.first().text.contains("need to do something sweet for Sarah", ignoreCase = true))
+    }
+
+    @Test
+    fun segmenterAndExtractor_preserveInOrderToPurposeClauseWhileKeepingStandaloneOrderVerb() = runTest {
+        val extractor = HeuristicActionExtractor(clock = fixedClock)
+
+        val inOrderToTranscript =
+            "I'd like to file issues on the repo for this app in order to pick up new tasks."
+        assertEquals(listOf(inOrderToTranscript), TranscriptSegmenter.segment(inOrderToTranscript))
+        val inOrderToActions = extractor.extract(inOrderToTranscript)
+        assertEquals(1, inOrderToActions.size)
+        assertTrue(inOrderToActions.first().text.contains("file issues", ignoreCase = true))
+        assertFalse(
+            inOrderToActions.any { it.text.trim().trimEnd('.').equals("pick up new tasks", ignoreCase = true) }
+        )
+
+        val inOrderWithAdverbTranscript =
+            "I'd like to create a release checklist in order to quickly order all the test hardware before launch."
+        assertEquals(
+            listOf(inOrderWithAdverbTranscript),
+            TranscriptSegmenter.segment(inOrderWithAdverbTranscript)
+        )
+        val inOrderAdverbActions = extractor.extract(inOrderWithAdverbTranscript)
+        assertEquals(1, inOrderAdverbActions.size)
+        assertTrue(inOrderAdverbActions.first().text.contains("create a release checklist", ignoreCase = true))
+
+        // Standalone "order" discourse marker still splits and extracts in long unpunctuated speech
+        val standaloneOrderTranscript =
+            "We reviewed the bathroom tile measurements with the contractor this morning order the tiles for Friday"
+        val orderSegments = TranscriptSegmenter.segment(standaloneOrderTranscript)
+        assertEquals(2, orderSegments.size)
+        assertEquals("order the tiles for Friday", orderSegments[1])
+
+        val standaloneOrderActions = extractor.extract(standaloneOrderTranscript)
+        assertEquals(1, standaloneOrderActions.size)
+        assertEquals("order the tiles for Friday", standaloneOrderActions.first().text)
+        assertNotNull(standaloneOrderActions.first().dueAtEpochMs)
+        val orderDueDateTime = LocalDateTime.ofInstant(
+            Instant.ofEpochMilli(standaloneOrderActions.first().dueAtEpochMs!!),
+            zone
+        )
+        assertEquals(LocalDateTime.of(2026, 11, 6, 9, 0), orderDueDateTime)
+
+        // Trailing "in" before standalone imperative "order" (not "in order to/for/that") still splits
+        val checkedInThenOrderTranscript =
+            "Earlier this morning we went ahead and checked in, order the tiles for the bathroom before Friday"
+        val checkedInOrderActions = extractor.extract(checkedInThenOrderTranscript)
+        assertEquals(1, checkedInOrderActions.size)
+        assertEquals(
+            "order the tiles for the bathroom before Friday",
+            checkedInOrderActions.first().text
+        )
+    }
 }
