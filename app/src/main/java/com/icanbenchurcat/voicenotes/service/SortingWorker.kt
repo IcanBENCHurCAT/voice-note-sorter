@@ -12,13 +12,18 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.ai.ExtractiveSummarizer
+import com.icanbenchurcat.voicenotes.ai.ExtractedAction
 import com.icanbenchurcat.voicenotes.ai.HeuristicActionExtractor
 import com.icanbenchurcat.voicenotes.ai.HeuristicBucketer
+import com.icanbenchurcat.voicenotes.ai.NanoActionExtractor
+import com.icanbenchurcat.voicenotes.ai.NanoBucketer
+import com.icanbenchurcat.voicenotes.ai.NanoSummarizer
 import com.icanbenchurcat.voicenotes.ai.NanoTranscriber
 import com.icanbenchurcat.voicenotes.ai.NullTranscriber
 import com.icanbenchurcat.voicenotes.ai.PlatformTranscriber
 import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
+import com.icanbenchurcat.voicenotes.ai.TitleSummary
 import com.icanbenchurcat.voicenotes.ai.Transcriber
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
@@ -57,7 +62,8 @@ class SortingWorker(
     private val extractor: ActionExtractor,
     private val bucketer: Bucketer,
     private val fallbackSummarizer: Summarizer = ExtractiveSummarizer(),
-    private val fallbackExtractor: ActionExtractor = HeuristicActionExtractor()
+    private val fallbackExtractor: ActionExtractor = HeuristicActionExtractor(),
+    private val fallbackBucketer: Bucketer = HeuristicBucketer()
 ) : CoroutineWorker(context, params) {
 
     // Primary constructor for WorkManager
@@ -68,9 +74,12 @@ class SortingWorker(
         transcriber = transcriberOverride ?: NanoTranscriber(context),
         platformTranscriber = transcriberOverride ?: PlatformTranscriber(context),
         nullTranscriber = NullTranscriber,
-        summarizer = ExtractiveSummarizer(),
-        extractor = HeuristicActionExtractor(),
-        bucketer = HeuristicBucketer()
+        summarizer = NanoSummarizer(),
+        extractor = NanoActionExtractor(),
+        bucketer = NanoBucketer(),
+        fallbackSummarizer = ExtractiveSummarizer(),
+        fallbackExtractor = HeuristicActionExtractor(),
+        fallbackBucketer = HeuristicBucketer()
     )
 
     override suspend fun doWork(): Result {
@@ -90,6 +99,7 @@ class SortingWorker(
             bucketer = bucketer,
             fallbackSummarizer = fallbackSummarizer,
             fallbackExtractor = fallbackExtractor,
+            fallbackBucketer = fallbackBucketer,
             dao = dao
         )
         return Result.success()
@@ -115,6 +125,7 @@ class SortingWorker(
             bucketer: Bucketer,
             fallbackSummarizer: Summarizer = ExtractiveSummarizer(),
             fallbackExtractor: ActionExtractor = HeuristicActionExtractor(),
+            fallbackBucketer: Bucketer = HeuristicBucketer(),
             dao: NoteDao? = null
         ): PipelineOutcome {
             val stages = mutableListOf<String>()
@@ -212,9 +223,19 @@ class SortingWorker(
             } else {
                 fallbackSummarizer
             }
+            var stage2ModelSucceeded = false
             try {
                 val ts = try {
-                    val result = activeSummarizer.summarize(currentNote.transcript)
+                    val result: TitleSummary
+                    if (activeSummarizer is NanoSummarizer) {
+                        val (summaryResult, summaryTier) = activeSummarizer.summarizeWithTier(currentNote.transcript)
+                        result = summaryResult
+                        stage2ModelSucceeded = summaryTier == Tier.FULL
+                    } else {
+                        result = activeSummarizer.summarize(currentNote.transcript)
+                        stage2ModelSucceeded = activeSummarizer !== fallbackSummarizer &&
+                            activeSummarizer !is ExtractiveSummarizer
+                    }
                     stages += "summarize:OK"
                     result
                 } catch (e: CancellationException) {
@@ -258,9 +279,19 @@ class SortingWorker(
                 fallbackExtractor
             }
             var persistedActions: List<ActionItem> = emptyList()
+            var stage3ModelSucceeded = false
             try {
                 val extracted = try {
-                    val result = activeExtractor.extract(currentNote.transcript)
+                    val result: List<ExtractedAction>
+                    if (activeExtractor is NanoActionExtractor) {
+                        val (extractedItems, extractorTier) = activeExtractor.extractWithTier(currentNote.transcript)
+                        result = extractedItems
+                        stage3ModelSucceeded = extractorTier == Tier.FULL
+                    } else {
+                        result = activeExtractor.extract(currentNote.transcript)
+                        stage3ModelSucceeded = activeExtractor !== fallbackExtractor &&
+                            activeExtractor !is HeuristicActionExtractor
+                    }
                     stages += "actions:OK"
                     result
                 } catch (e: CancellationException) {
@@ -309,75 +340,124 @@ class SortingWorker(
             dao?.update(currentNote)
 
             // Stage 4: bucket + tags — independently caught, idempotently replaced, and persisted
+            val activeBucketer = if (
+                probedSummarizerStatus == CapabilityStatus.AVAILABLE &&
+                bucketer.status() == CapabilityStatus.AVAILABLE
+            ) {
+                bucketer
+            } else {
+                fallbackBucketer
+            }
             var persistedTags: List<String> = emptyList()
+            var stage4ModelSucceeded = false
+            var resolvedAssignmentTier: Tier? = null
             try {
-                val rawAssignment = bucketer.assign(currentNote.transcript, profile)
-                val assignment = if (
-                    rawAssignment.bucketKind == "INBOX" &&
-                    persistedActions.isNotEmpty() &&
-                    profile.buckets.any { it.kind == "TASK" }
-                ) {
-                    rawAssignment.copy(
-                        bucketKind = "TASK",
-                        confidence = 0.8f,
-                        score = persistedActions.size,
-                        needsReview = false
-                    )
-                } else {
-                    rawAssignment
+                val rawAssignment = try {
+                    val result = activeBucketer.assign(currentNote.transcript, profile)
+                    stages += "bucket:OK"
+                    stage4ModelSucceeded = activeBucketer !== fallbackBucketer &&
+                        activeBucketer !is HeuristicBucketer &&
+                        result.tier == Tier.FULL
+                    result
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: CapabilityBusyException) {
+                    stages += "bucket:BUSY"
+                    CapabilityProbe.logDemotion("bucketer", Tier.FULL, Tier.CORE)
+                    if (activeBucketer !== fallbackBucketer) {
+                        val fallbackResult = fallbackBucketer.assign(currentNote.transcript, profile)
+                        stages += "bucket_fallback:OK"
+                        fallbackResult
+                    } else {
+                        null
+                    }
                 }
-                stages += "bucket:OK"
-
-                // Ensure the assigned bucket exists as a Bucket row in the database
-                if (dao != null && dao.bucketByKind(assignment.bucketKind) == null) {
-                    val def = profile.buckets.firstOrNull { it.kind == assignment.bucketKind }
-                    dao.insertBuckets(
-                        listOf(
-                            Bucket(
-                                kind = assignment.bucketKind,
-                                name = def?.name ?: assignment.bucketKind
+                val assignment = rawAssignment?.let { raw ->
+                    if (
+                        raw.bucketKind == "INBOX" &&
+                        persistedActions.isNotEmpty() &&
+                        profile.buckets.any { it.kind == "TASK" }
+                    ) {
+                        raw.copy(
+                            bucketKind = "TASK",
+                            confidence = 0.8f,
+                            score = persistedActions.size,
+                            needsReview = false
+                        )
+                    } else {
+                        raw
+                    }
+                }
+                if (assignment != null) {
+                    resolvedAssignmentTier = assignment.tier
+                    // Ensure the assigned bucket exists as a Bucket row in the database
+                    if (dao != null && dao.bucketByKind(assignment.bucketKind) == null) {
+                        val def = profile.buckets.firstOrNull { it.kind == assignment.bucketKind }
+                        dao.insertBuckets(
+                            listOf(
+                                Bucket(
+                                    kind = assignment.bucketKind,
+                                    name = def?.name ?: assignment.bucketKind
+                                )
                             )
                         )
+                    }
+
+                    val distinctTags = assignment.tags
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .distinct()
+                        .sorted()
+                    dao?.deleteNoteTagsForNote(currentNote.id)
+                    if (distinctTags.isNotEmpty()) {
+                        dao?.insertTags(distinctTags.map { Tag(it) })
+                        dao?.insertNoteTags(distinctTags.map { NoteTag(noteId = currentNote.id, tagName = it) })
+                    }
+                    persistedTags = dao?.tagsFor(currentNote.id) ?: distinctTags
+                    val hadStageDegradation = stages.any { it.endsWith(":BUSY") || it.endsWith(":FAILED") }
+                    val weakBucketEvidence = assignment.needsReview ||
+                        assignment.bucketKind == "INBOX" ||
+                        assignment.confidence < 0.7f ||
+                        assignment.score <= 0
+                    val finalStatus = if (hadStageDegradation || weakBucketEvidence) {
+                        NoteStatus.NEEDS_REVIEW.name
+                    } else {
+                        NoteStatus.SORTED.name
+                    }
+                    val resolvedTier = resolvePipelineTier(
+                        transcriptTier = transcript.tier,
+                        anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
+                        assignmentTier = assignment.tier
+                    )
+                    currentNote = currentNote.copy(
+                        bucketKind = assignment.bucketKind,
+                        tierUsed = resolvedTier.name,
+                        stageStatus = stages.joinToString(","),
+                        status = finalStatus
+                    )
+                } else {
+                    val resolvedTier = resolvePipelineTier(
+                        transcriptTier = transcript.tier,
+                        anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
+                        assignmentTier = null
+                    )
+                    currentNote = currentNote.copy(
+                        tierUsed = resolvedTier.name,
+                        stageStatus = stages.joinToString(","),
+                        status = NoteStatus.NEEDS_REVIEW.name
                     )
                 }
-
-                val distinctTags = assignment.tags
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() }
-                    .distinct()
-                    .sorted()
-                dao?.deleteNoteTagsForNote(currentNote.id)
-                if (distinctTags.isNotEmpty()) {
-                    dao?.insertTags(distinctTags.map { Tag(it) })
-                    dao?.insertNoteTags(distinctTags.map { NoteTag(noteId = currentNote.id, tagName = it) })
-                }
-                persistedTags = dao?.tagsFor(currentNote.id) ?: distinctTags
-                val hadStageDegradation = stages.any { it.endsWith(":BUSY") || it.endsWith(":FAILED") }
-                val weakBucketEvidence = assignment.needsReview ||
-                    assignment.bucketKind == "INBOX" ||
-                    assignment.confidence < 0.7f ||
-                    assignment.score <= 0
-                val finalStatus = if (hadStageDegradation || weakBucketEvidence) {
-                    NoteStatus.NEEDS_REVIEW.name
-                } else {
-                    NoteStatus.SORTED.name
-                }
-                currentNote = currentNote.copy(
-                    bucketKind = assignment.bucketKind,
-                    stageStatus = stages.joinToString(","),
-                    status = finalStatus
-                )
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: CapabilityBusyException) {
-                stages += "bucket:BUSY"
-                currentNote = currentNote.copy(
-                    stageStatus = stages.joinToString(","),
-                    status = NoteStatus.NEEDS_REVIEW.name
-                )
             } catch (e: Exception) {
                 stages += "bucket:FAILED"
+                val resolvedTier = resolvePipelineTier(
+                    transcriptTier = transcript.tier,
+                    anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
+                    assignmentTier = resolvedAssignmentTier
+                )
                 currentNote = currentNote.copy(
+                    tierUsed = resolvedTier.name,
                     stageStatus = stages.joinToString(","),
                     status = NoteStatus.NEEDS_REVIEW.name
                 )
@@ -391,6 +471,21 @@ class SortingWorker(
                 extractedActions = persistedActions,
                 tags = persistedTags
             )
+        }
+
+        private fun resolvePipelineTier(
+            transcriptTier: Tier,
+            anyModelStageSucceeded: Boolean,
+            assignmentTier: Tier?
+        ): Tier {
+            if (anyModelStageSucceeded || assignmentTier == Tier.FULL) {
+                return Tier.FULL
+            }
+            return if (transcriptTier == Tier.FULL) {
+                Tier.CORE
+            } else {
+                transcriptTier
+            }
         }
 
         private suspend fun transcribeWithPlatformOrNull(

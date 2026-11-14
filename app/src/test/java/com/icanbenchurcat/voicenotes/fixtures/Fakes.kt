@@ -76,9 +76,16 @@ class FakeActionExtractor(
 
 class FakeBucketer(
     private val assignment: BucketAssignment = BucketAssignment("INBOX", emptyList(), Tier.CORE),
-    private val exception: Exception? = null
+    private val exception: Exception? = null,
+    private val currentStatus: CapabilityStatus = CapabilityStatus.AVAILABLE
 ) : Bucketer {
+    var calls = 0
+        private set
+
+    override suspend fun status(): CapabilityStatus = currentStatus
+
     override suspend fun assign(transcript: String, profile: BucketProfile): BucketAssignment {
+        calls++
         if (exception != null) throw exception
         return assignment
     }

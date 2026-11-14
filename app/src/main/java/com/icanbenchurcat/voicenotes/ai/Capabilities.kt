@@ -41,6 +41,8 @@ interface ActionExtractor {
 data class ExtractedAction(val text: String, val dueAtEpochMs: Long? = null)
 
 interface Bucketer {
+    suspend fun status(): CapabilityStatus = CapabilityStatus.AVAILABLE
+
     /** Filing is configuration-driven: bucket sets come from a
      *  BucketProfileProvider so white-label builds can swap them. */
     suspend fun assign(transcript: String, profile: BucketProfile): BucketAssignment
