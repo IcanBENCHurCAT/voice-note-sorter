@@ -315,7 +315,21 @@ class SortingWorker(
             // Stage 4: bucket + tags — independently caught, idempotently replaced, and persisted
             var persistedTags: List<String> = emptyList()
             try {
-                val assignment = bucketer.assign(currentNote.transcript, profile)
+                val rawAssignment = bucketer.assign(currentNote.transcript, profile)
+                val assignment = if (
+                    rawAssignment.bucketKind == "INBOX" &&
+                    persistedActions.isNotEmpty() &&
+                    profile.buckets.any { it.kind == "TASK" }
+                ) {
+                    rawAssignment.copy(
+                        bucketKind = "TASK",
+                        confidence = 0.8f,
+                        score = persistedActions.size,
+                        needsReview = false
+                    )
+                } else {
+                    rawAssignment
+                }
                 stages += "bucket:OK"
 
                 // Ensure the assigned bucket exists as a Bucket row in the database
