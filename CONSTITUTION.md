@@ -52,6 +52,15 @@ Article VIII.
    composed builds. Advertising code and SDKs MUST NOT exist in the
    open repository.
 
+### Open Core / Closed Pro Boundary (added 2026-11-18)
+
+1. Two repositories: the open core (voice-note-sorter, Apache-2.0, public) and the closed Pro companion (voice-note-sorter-pro, proprietary, private). This constitution governs both builds.
+2. Open core: MUST NOT declare INTERNET or any network permission. AI is limited to OS-managed AICore models (com.google.mlkit:genai-*) and small bundled models under Apache-2.0-compatible licenses. No billing, entitlement, or paywall code, and nothing that might ever be charged for is tracked in the open repo.
+3. Closed Pro: MAY contain billing/entitlement code and large open-weight models (LiteRT / LiteRT-LM neural embedders, VLM image transcribers, Whisper/diarization, LoRA adapters). Pro consumes the core only through the :extension-api seam (ADR 0002). The core never depends on Pro.
+4. Network in Pro: the Pro build MAY declare INTERNET for one purpose only: model-pack downloads that the user explicitly initiates, over HTTPS, with SHA-256 verification before use. No other network use. No user account system and no server operated for the app.
+5. User content (audio, transcripts, notes, images, embeddings) MUST NOT leave the device in either build, except a single explicit user-invoked export or share action. Cloud transcription, cloud inference, and cloud sync are prohibited in both builds; changing this requires a further constitutional amendment plus an ADR.
+6. Mirror rule: fixes that belong in the core are implemented in the open repo on their own merits. Closed Pro code is never copied into the open repo.
+
 ## Article III. The Capability Ladder and Honest Degradation
 
 1. Every on-device AI capability MUST sit behind an interface in the
@@ -175,4 +184,4 @@ Article VIII.
    published, remediation includes the disclosure required by the
    consequences recorded in ADR 0001.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-30 | **Last Amended**: 2026-10-30
+**Version**: 1.1.0 | **Ratified**: 2026-10-30 | **Last Amended**: 2026-11-18 (Added Article II "Open Core / Closed Pro Boundary" addendum; ADR 0009)
