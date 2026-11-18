@@ -85,7 +85,9 @@ extracting a dedicated `:extension-api` module.
 
 Anything behind these seams can be replaced by a downstream module
 without modifying core code. See `docs/adr/0001-open-core-closed-pro-split.md`
-for why the seam exists and the rules around it, and `CONSTITUTION.md`
+for why the seam exists and the rules around it,
+`docs/adr/0009-open-pro-ai-model-boundary.md` for the AI model and network
+boundary between Open Core and Closed Pro, and `CONSTITUTION.md`
 for the governing principles.
 
 ## What is deliberately absent
