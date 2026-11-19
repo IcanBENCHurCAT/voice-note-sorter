@@ -71,12 +71,15 @@ data class BucketProfile(val buckets: List<BucketDef>)
 data class BucketDef(val kind: String, val name: String, val keywords: List<String>)
 
 interface Embedder {
+    /** Stable identifier for the active embedding model and vector space. */
+    val modelId: String
     suspend fun status(): CapabilityStatus
     /** Generates an embedding vector for the text. Returns null when unsupported on the active tier. */
     suspend fun embed(text: String): FloatArray?
 }
 
 class NoOpEmbedder : Embedder {
+    override val modelId: String = "noop"
     override suspend fun status(): CapabilityStatus = CapabilityStatus.UNAVAILABLE
     override suspend fun embed(text: String): FloatArray? = null
 }
