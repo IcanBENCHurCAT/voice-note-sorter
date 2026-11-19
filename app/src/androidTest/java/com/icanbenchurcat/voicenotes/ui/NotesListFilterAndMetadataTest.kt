@@ -267,4 +267,21 @@ class NotesListFilterAndMetadataTest {
         composeTestRule.onNodeWithContentDescription("Filter Needs Review notes").performClick()
         composeTestRule.onNodeWithText("Ambiguous Note").assertIsDisplayed()
     }
+
+    @Test
+    fun emptyLibrary_displaysStructuredPlainLanguageEmptyState() {
+        composeTestRule.setContent {
+            NotesListScreen(
+                notes = emptyList(),
+                onOpen = {}
+            )
+        }
+
+        composeTestRule.onNodeWithText("No voice notes yet").assertIsDisplayed()
+        composeTestRule.onNodeWithText(
+            "Tap Record to capture a thought. Everything stays private on this device and sorts automatically into Notes and Tasks."
+        ).assertIsDisplayed()
+        composeTestRule.onNodeWithText("Device capability:", substring = true).assertDoesNotExist()
+        composeTestRule.onNodeWithText("Settings").assertDoesNotExist()
+    }
 }

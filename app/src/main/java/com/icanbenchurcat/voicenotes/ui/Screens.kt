@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -32,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.AlertDialog
@@ -70,13 +72,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
-import com.icanbenchurcat.voicenotes.ai.Tier
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -109,13 +111,11 @@ fun NotesListScreen(
     notes: List<Note>,
     searchQuery: String = "",
     onSearchQueryChange: (String) -> Unit = {},
-    deviceTier: Tier? = null,
     buckets: List<Bucket> = emptyList(),
     tasks: List<ActionItemWithNote> = emptyList(),
     tags: List<String> = emptyList(),
     noteTags: List<NoteTag> = emptyList(),
     onManageBuckets: (() -> Unit)? = null,
-    onOpenSettings: (() -> Unit)? = null,
     onOpen: (Note) -> Unit
 ) {
     var selectedBucketKind by rememberSaveable { mutableStateOf<String?>(null) }
@@ -157,43 +157,48 @@ fun NotesListScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val tierText = when (deviceTier) {
-                Tier.FULL -> stringResource(R.string.tier_badge_full)
-                Tier.CORE -> stringResource(R.string.tier_badge_core)
-                Tier.MINIMAL, null -> stringResource(R.string.tier_badge_basic)
-            }
-            Text(
-                text = "Device capability: $tierText",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .clickable(enabled = onOpenSettings != null) { onOpenSettings?.invoke() }
-            )
-            if (onOpenSettings != null) {
-                TextButton(onClick = onOpenSettings) {
-                    Text(
-                        text = stringResource(R.string.action_settings),
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-            }
-        }
+        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         if (isLibraryEmpty) {
             Box(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 88.dp + navBarBottom),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "No voice notes yet. Tap Record to capture a thought.",
-                    style = MaterialTheme.typography.bodyLarge
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_tile_record),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = stringResource(R.string.empty_notes_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.empty_notes_description),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
             return
         }
@@ -372,7 +377,6 @@ fun NotesListScreen(
             }
             return
         }
-        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()

@@ -67,7 +67,7 @@ data class Tag(@PrimaryKey val name: String)
 data class NoteTag(val noteId: Long, val tagName: String)
 
 /** Full-text index over the human-readable fields; search works on
- *  every tier, semantic search (Tier 3) layers on top in v1.1. */
+ *  every tier, semantic search (Tier 3) layers on top via NoteEmbedding. */
 @Fts4(contentEntity = Note::class)
 @Entity(tableName = "notes_fts")
 data class NoteFts(
@@ -75,3 +75,37 @@ data class NoteFts(
     val transcript: String,
     val summary: String
 )
+
+/** Persisted semantic embedding vector for a [Note], tagged with the producing [modelId]. */
+@Entity(tableName = "note_embeddings")
+data class NoteEmbedding(
+    @PrimaryKey val noteId: Long,
+    val modelId: String,
+    val dimension: Int,
+    val vectorBlob: ByteArray,
+    val updatedAtEpochMs: Long
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as NoteEmbedding
+
+        if (noteId != other.noteId) return false
+        if (modelId != other.modelId) return false
+        if (dimension != other.dimension) return false
+        if (!vectorBlob.contentEquals(other.vectorBlob)) return false
+        if (updatedAtEpochMs != other.updatedAtEpochMs) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = noteId.hashCode()
+        result = 31 * result + modelId.hashCode()
+        result = 31 * result + dimension
+        result = 31 * result + vectorBlob.contentHashCode()
+        result = 31 * result + updatedAtEpochMs.hashCode()
+        return result
+    }
+}

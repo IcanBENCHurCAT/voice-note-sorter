@@ -6,6 +6,10 @@
     <string name="channel_sorting">Sorting</string>
     <string name="notif_sorting_title">Sorting your note</string>
     <string name="cd_record_fab">Record a note</string>
+    <string name="action_record">Record</string>
+    <string name="cd_stop_record_fab">Stop active recording</string>
+    <string name="empty_notes_title">No voice notes yet</string>
+    <string name="empty_notes_description">Tap Record to capture a thought. Everything stays private on this device and sorts automatically into Notes and Tasks.</string>
     <string name="cd_widget_record">Record a note</string>
     <string name="cd_note_meta">Filed as %1$s, %2$s</string>
     <string name="cd_note_bucket">Filed as %1$s</string>

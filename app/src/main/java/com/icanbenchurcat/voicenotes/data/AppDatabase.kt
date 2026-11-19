@@ -10,8 +10,16 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Note::class, Bucket::class, ActionItem::class, Tag::class, NoteTag::class, NoteFts::class],
-    version = 2,
+    entities = [
+        Note::class,
+        Bucket::class,
+        ActionItem::class,
+        Tag::class,
+        NoteTag::class,
+        NoteFts::class,
+        NoteEmbedding::class
+    ],
+    version = 3,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,13 +32,30 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `note_embeddings` (
+                        `noteId` INTEGER NOT NULL,
+                        `modelId` TEXT NOT NULL,
+                        `dimension` INTEGER NOT NULL,
+                        `vectorBlob` BLOB NOT NULL,
+                        `updatedAtEpochMs` INTEGER NOT NULL,
+                        PRIMARY KEY(`noteId`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile private var instance: AppDatabase? = null
 
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext, AppDatabase::class.java, "voice-notes.db"
             )
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

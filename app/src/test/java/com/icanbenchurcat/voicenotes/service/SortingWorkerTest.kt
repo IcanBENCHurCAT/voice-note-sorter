@@ -13,6 +13,7 @@ import com.icanbenchurcat.voicenotes.ai.Bucketer
 import com.icanbenchurcat.voicenotes.ai.CapabilityBusyException
 import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
+import com.icanbenchurcat.voicenotes.ai.DeterministicTranscriptCleaner
 import com.icanbenchurcat.voicenotes.ai.ExtractiveSummarizer
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
 import com.icanbenchurcat.voicenotes.ai.FakeCapabilityChecker
@@ -21,17 +22,27 @@ import com.icanbenchurcat.voicenotes.ai.HeuristicActionExtractor
 import com.icanbenchurcat.voicenotes.ai.HeuristicBucketer
 import com.icanbenchurcat.voicenotes.ai.NanoActionExtractor
 import com.icanbenchurcat.voicenotes.ai.NanoBucketer
+import com.icanbenchurcat.voicenotes.ai.NanoProofreader
 import com.icanbenchurcat.voicenotes.ai.NanoSummarizer
 import com.icanbenchurcat.voicenotes.ai.NullTranscriber
 import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.ai.TitleSummary
 import com.icanbenchurcat.voicenotes.ai.Transcriber
+import com.icanbenchurcat.voicenotes.ai.NOTE_ANALYSIS_SYSTEM_INSTRUCTION
+import com.icanbenchurcat.voicenotes.ai.PromptRequest
+import com.icanbenchurcat.voicenotes.ai.StructuredActionExtraction
+import com.icanbenchurcat.voicenotes.ai.StructuredActionItem
+import com.icanbenchurcat.voicenotes.ai.StructuredBucketAssignment
+import com.icanbenchurcat.voicenotes.ai.StructuredTitleSummary
 import com.icanbenchurcat.voicenotes.ai.Transcript
+import com.icanbenchurcat.voicenotes.ai.buildTranscriptPrefix
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.Bucket
+import com.icanbenchurcat.voicenotes.data.EmbeddingCodec
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
+import com.icanbenchurcat.voicenotes.data.NoteEmbedding
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
@@ -142,7 +153,7 @@ class SortingWorkerTest {
         assertEquals("platform transcript", outcome.updatedNote.transcript)
         assertEquals("CORE", outcome.updatedNote.tierUsed)
         assertEquals(
-            "transcribe:BUSY,transcribe_fallback:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:BUSY,transcribe_fallback:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -204,7 +215,7 @@ class SortingWorkerTest {
         assertEquals("platform", outcome.updatedNote.transcript)
         assertEquals("CORE", outcome.updatedNote.tierUsed)
         assertEquals(
-            "transcribe_fallback:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe_fallback:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -288,7 +299,7 @@ class SortingWorkerTest {
         )
 
         assertEquals(
-            "transcribe:OK,summarize:FAILED,actions:FAILED,bucket:OK",
+            "transcribe:OK,summarize:FAILED,actions:FAILED,bucket:OK,embed:SKIPPED",
             outcome1.updatedNote.stageStatus
         )
         assertEquals("TASK", outcome1.updatedNote.bucketKind)
@@ -309,7 +320,7 @@ class SortingWorkerTest {
         )
 
         assertEquals(
-            "transcribe:OK,summarize:OK,actions:OK,bucket:FAILED",
+            "transcribe:OK,summarize:OK,actions:OK,bucket:FAILED,embed:SKIPPED",
             outcome2.updatedNote.stageStatus
         )
         assertEquals("Title", outcome2.updatedNote.title)
@@ -359,8 +370,8 @@ class SortingWorkerTest {
             bucketer = bucketer,
             dao = dao
         )
-        // Verify each of the 4 stages wrote independently to the DAO during the first run
-        assertEquals(4, dao.updateSnapshots.size)
+        // Verify each of the 5 stages wrote independently to the DAO during the first run
+        assertEquals(5, dao.updateSnapshots.size)
 
         val noteAfterRun1 = dao.byId(noteId)!!
         val actionsAfterRun1 = dao.actionsFor(noteId).map { it.copy(id = 0L) }
@@ -598,7 +609,7 @@ class SortingWorkerTest {
         assertEquals("FULL", outcome.updatedNote.tierUsed)
         assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
         assertEquals(
-            "transcribe:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -650,7 +661,7 @@ class SortingWorkerTest {
         assertEquals("TASK", outcome.updatedNote.bucketKind)
         assertEquals("CORE", outcome.updatedNote.tierUsed)
         assertEquals(
-            "transcribe:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -701,7 +712,7 @@ class SortingWorkerTest {
         assertEquals("CORE", outcome.updatedNote.tierUsed)
         assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
         assertEquals(
-            "transcribe:OK,summarize:BUSY,summarize_fallback:OK,actions:BUSY,actions_fallback:OK,bucket:BUSY,bucket_fallback:OK",
+            "transcribe:OK,summarize:BUSY,summarize_fallback:OK,actions:BUSY,actions_fallback:OK,bucket:BUSY,bucket_fallback:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -835,6 +846,766 @@ class SortingWorkerTest {
         assertEquals(1, outcome.extractedActions.size)
         assertEquals("TASK", outcome.updatedNote.bucketKind)
         assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
-        assertEquals("transcribe:OK,summarize:OK,actions:OK,bucket:OK", outcome.updatedNote.stageStatus)
+        assertEquals("transcribe:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED", outcome.updatedNote.stageStatus)
+    }
+
+    @Test
+    fun stage5_noOpEmbedder_recordsEmbedSkipped_andWritesNoEmbedding() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(transcriber = CapabilityStatus.AVAILABLE),
+            dataStore
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Buy milk today.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao
+        )
+
+        assertTrue(outcome.updatedNote.stageStatus.endsWith("embed:SKIPPED"))
+        assertEquals(null, dao.embeddingForNote(noteId))
+    }
+
+    @Test
+    fun stage5_availableEmbedder_computesOverTitleSummaryTranscript_andPersistsEmbedding() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val expectedVector = floatArrayOf(0.6f, 0.8f, 0.0f)
+        val embedder = FakeEmbedder(
+            modelId = "gecko-test-v1",
+            defaultVector = expectedVector
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Transcript body here.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Title One", "Summary One")),
+            extractor = FakeActionExtractor(),
+            bucketer = FakeBucketer(BucketAssignment("NOTE", emptyList(), Tier.CORE)),
+            dao = dao,
+            embedder = embedder
+        )
+
+        assertEquals(1, embedder.calls)
+        assertEquals("Title One\nSummary One\nTranscript body here.", embedder.inputs.single())
+        assertTrue(outcome.updatedNote.stageStatus.endsWith("embed:OK"))
+
+        val stored = dao.embeddingForNote(noteId)
+        assertNotNull(stored)
+        assertEquals(noteId, stored!!.noteId)
+        assertEquals("gecko-test-v1", stored.modelId)
+        assertEquals(3, stored.dimension)
+        val decoded = EmbeddingCodec.decode(stored.vectorBlob, stored.dimension)!!
+        assertEquals(expectedVector.toList(), decoded.toList())
+    }
+
+    @Test
+    fun stage5_availableEmbedder_isIdempotentWhenModelIdMatches_andReEmbedsWhenModelIdChanges() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val embedderV1 = FakeEmbedder(
+            modelId = "embed-v1",
+            defaultVector = floatArrayOf(1.0f, 0.0f)
+        )
+
+        val run1 = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Order coffee beans.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Coffee", "Order coffee beans.")),
+            extractor = FakeActionExtractor(),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("coffee"), Tier.CORE)),
+            dao = dao,
+            embedder = embedderV1
+        )
+        val storedRun1 = dao.embeddingForNote(noteId)!!
+        assertEquals(1, embedderV1.calls)
+        assertEquals("embed-v1", storedRun1.modelId)
+
+        // Second run with the SAME modelId -> idempotent, does not call embedder again
+        val run2 = SortingWorker.executePipeline(
+            note = run1.updatedNote,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Order coffee beans.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Coffee", "Order coffee beans.")),
+            extractor = FakeActionExtractor(),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("coffee"), Tier.CORE)),
+            dao = dao,
+            embedder = embedderV1
+        )
+        val storedRun2 = dao.embeddingForNote(noteId)!!
+        assertEquals(1, embedderV1.calls)
+        assertEquals(run1.updatedNote, run2.updatedNote)
+        assertEquals(storedRun1, storedRun2)
+
+        // Third run with a NEW modelId -> lazily re-embeds and replaces stored row
+        val embedderV2 = FakeEmbedder(
+            modelId = "embed-v2",
+            defaultVector = floatArrayOf(0.0f, 1.0f, 0.5f)
+        )
+        val run3 = SortingWorker.executePipeline(
+            note = run2.updatedNote,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Order coffee beans.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Coffee", "Order coffee beans.")),
+            extractor = FakeActionExtractor(),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("coffee"), Tier.CORE)),
+            dao = dao,
+            embedder = embedderV2
+        )
+        val storedRun3 = dao.embeddingForNote(noteId)!!
+        assertEquals(1, embedderV2.calls)
+        assertTrue(run3.updatedNote.stageStatus.endsWith("embed:OK"))
+        assertEquals("embed-v2", storedRun3.modelId)
+        assertEquals(3, storedRun3.dimension)
+        assertEquals(
+            listOf(0.0f, 1.0f, 0.5f),
+            EmbeddingCodec.decode(storedRun3.vectorBlob, storedRun3.dimension)!!.toList()
+        )
+    }
+
+    @Test
+    fun stage5_embedderBusyOrThrows_recordsHonestStatusWithoutLosingStages1To4() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        // Case 1: embed() throws CapabilityBusyException
+        val busyOutcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Schedule dentist.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Dentist", "Schedule dentist.")),
+            extractor = FakeActionExtractor(items = listOf(ExtractedAction("Schedule dentist"))),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("health"), Tier.CORE)),
+            dao = dao,
+            embedder = FakeEmbedder(exception = CapabilityBusyException())
+        )
+        assertEquals(
+            "transcribe:OK,summarize:OK,actions:OK,bucket:OK,embed:BUSY",
+            busyOutcome.updatedNote.stageStatus
+        )
+        assertEquals("TASK", busyOutcome.updatedNote.bucketKind)
+        assertEquals(NoteStatus.SORTED.name, busyOutcome.updatedNote.status)
+        assertEquals(null, dao.embeddingForNote(noteId))
+
+        // Case 2: status() returns BUSY
+        val statusBusyOutcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Schedule dentist.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Dentist", "Schedule dentist.")),
+            extractor = FakeActionExtractor(items = listOf(ExtractedAction("Schedule dentist"))),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("health"), Tier.CORE)),
+            dao = dao,
+            embedder = FakeEmbedder(currentStatus = CapabilityStatus.BUSY)
+        )
+        assertTrue(statusBusyOutcome.updatedNote.stageStatus.endsWith("embed:BUSY"))
+
+        // Case 3: unexpected RuntimeException -> embed:FAILED, note preserved
+        val failedOutcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Schedule dentist.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Dentist", "Schedule dentist.")),
+            extractor = FakeActionExtractor(items = listOf(ExtractedAction("Schedule dentist"))),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("health"), Tier.CORE)),
+            dao = dao,
+            embedder = FakeEmbedder(exception = IllegalStateException("Model crashed"))
+        )
+        assertTrue(failedOutcome.updatedNote.stageStatus.endsWith("embed:FAILED"))
+        assertEquals("Dentist", failedOutcome.updatedNote.title)
+    }
+
+    @Test
+    fun nanoPipeline_reusesSingleSessionWithSharedPrefixWarmupAndCleanup_andPrefersStructuredOutput() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val zone = ZoneId.of("UTC")
+        val fixedClock = Clock.fixed(
+            LocalDateTime.of(2026, 11, 2, 10, 0, 0).atZone(zone).toInstant(),
+            zone
+        )
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val transcriptText = "Need to call the plumber tomorrow at 2pm and pick up replacement gaskets."
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            structuredOutputAvailable = true,
+            systemPromptAvailable = true,
+            cachingAvailable = true,
+            typedResponder = { _, outputClass ->
+                when (outputClass) {
+                    StructuredTitleSummary::class -> StructuredTitleSummary(
+                        title = "Plumbing & Parts Run",
+                        summary = "Call the plumber tomorrow at 2pm and pick up replacement gaskets."
+                    )
+                    StructuredActionExtraction::class -> StructuredActionExtraction(
+                        actions = listOf(
+                            StructuredActionItem("Call the plumber", "tomorrow at 2pm"),
+                            StructuredActionItem("Pick up replacement gaskets", null)
+                        )
+                    )
+                    StructuredBucketAssignment::class -> StructuredBucketAssignment(
+                        bucketKind = "TASK",
+                        tags = listOf("plumbing", "home-repair")
+                    )
+                    else -> null
+                }
+            }
+        )
+
+        val fallbackSummarizer = FakeSummarizer()
+        val fallbackExtractor = FakeActionExtractor()
+        val fallbackBucketer = FakeBucketer()
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript(transcriptText, Tier.FULL)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = NanoSummarizer(promptClient, fallbackSummarizer),
+            extractor = NanoActionExtractor(promptClient, fallbackExtractor, fixedClock),
+            bucketer = NanoBucketer(promptClient, fallbackBucketer),
+            fallbackSummarizer = fallbackSummarizer,
+            fallbackExtractor = fallbackExtractor,
+            fallbackBucketer = fallbackBucketer,
+            dao = dao
+        )
+
+        assertEquals(1, promptClient.openedSessions.size)
+        val session = promptClient.openedSessions.single()
+        assertEquals(1, session.warmupCalls)
+        assertEquals(3, session.generateTypedCalls)
+        assertEquals(0, session.generateTextCalls)
+        assertEquals(1, session.clearImplicitCachesCalls)
+        assertEquals(1, session.closeCalls)
+        assertEquals(0, fallbackSummarizer.calls)
+        assertEquals(0, fallbackExtractor.calls)
+        assertEquals(0, fallbackBucketer.calls)
+
+        val expectedPrefix = buildTranscriptPrefix(transcriptText)
+        assertEquals(3, session.typedRequests.size)
+        session.typedRequests.forEach { req ->
+            assertEquals(NOTE_ANALYSIS_SYSTEM_INSTRUCTION, req.systemInstruction)
+            assertEquals(expectedPrefix, req.promptPrefix)
+        }
+
+        assertEquals("Plumbing & Parts Run", outcome.updatedNote.title)
+        assertEquals("TASK", outcome.updatedNote.bucketKind)
+        assertEquals(listOf("home-repair", "plumbing"), outcome.tags)
+        assertEquals(2, outcome.extractedActions.size)
+        assertNotNull(outcome.extractedActions[0].dueAtEpochMs)
+        assertEquals("FULL", outcome.updatedNote.tierUsed)
+        assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
+    }
+
+    @Test
+    fun nanoPipeline_stageStructuredFailure_fallsBackToRegexWithinSharedSession() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val zone = ZoneId.of("UTC")
+        val fixedClock = Clock.fixed(
+            LocalDateTime.of(2026, 11, 2, 10, 0, 0).atZone(zone).toInstant(),
+            zone
+        )
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            structuredOutputAvailable = true,
+            typedResponder = { _, outputClass ->
+                when (outputClass) {
+                    StructuredTitleSummary::class -> StructuredTitleSummary(
+                        title = "Hardware Errand",
+                        summary = "Call plumber and buy gaskets."
+                    )
+                    StructuredActionExtraction::class -> null // Simulate non-busy structured decode failure
+                    StructuredBucketAssignment::class -> StructuredBucketAssignment(
+                        bucketKind = "TASK",
+                        tags = listOf("plumbing")
+                    )
+                    else -> null
+                }
+            },
+            responder = { prompt ->
+                if (prompt.startsWith("Extract concrete action items")) {
+                    "ACTION: Call the plumber | DUE: tomorrow at 2pm"
+                } else {
+                    ""
+                }
+            }
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(
+                result = Transcript("Need to call the plumber tomorrow at 2pm.", Tier.FULL)
+            ),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = NanoSummarizer(promptClient),
+            extractor = NanoActionExtractor(promptClient, HeuristicActionExtractor(), fixedClock),
+            bucketer = NanoBucketer(promptClient),
+            dao = dao
+        )
+
+        assertEquals(1, promptClient.openedSessions.size)
+        val session = promptClient.openedSessions.single()
+        assertEquals(1, session.warmupCalls)
+        assertEquals(3, session.generateTypedCalls)
+        assertEquals(1, session.generateTextCalls)
+        assertEquals(1, session.clearImplicitCachesCalls)
+        assertEquals(1, session.closeCalls)
+        assertEquals(listOf("Call the plumber"), outcome.extractedActions.map { it.text })
+        assertEquals("FULL", outcome.updatedNote.tierUsed)
+        assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
+    }
+
+    @Test
+    fun nanoPipeline_clearsCachesAndClosesSessionOnCancellation() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val cancelingClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            structuredOutputAvailable = true,
+            typedException = CancellationException("Worker cancelled mid-pipeline")
+        )
+
+        try {
+            SortingWorker.executePipeline(
+                note = dao.byId(noteId)!!,
+                capabilityProbe = probe,
+                transcriber = FakeTranscriber(result = Transcript("Call Sam tomorrow.", Tier.FULL)),
+                platformTranscriber = FakeTranscriber(),
+                nullTranscriber = NullTranscriber,
+                summarizer = NanoSummarizer(cancelingClient),
+                extractor = NanoActionExtractor(cancelingClient),
+                bucketer = NanoBucketer(cancelingClient),
+                dao = dao
+            )
+            fail("Expected CancellationException to propagate")
+        } catch (_: CancellationException) {
+            // Expected
+        }
+
+        assertEquals(1, cancelingClient.openedSessions.size)
+        val session = cancelingClient.openedSessions.single()
+        assertEquals(1, session.warmupCalls)
+        assertEquals(1, session.clearImplicitCachesCalls)
+        assertEquals(1, session.closeCalls)
+    }
+
+    @Test
+    fun proofreader_preservesRawNoteTranscriptImmutably_whileStages2To4ConsumeWorkingTranscript() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val rawTranscript = "  remind me   to call dr chen tomorrow at 3pm about invoice 4812  "
+        val proofreadTranscript = "Remind me to call Dr. Chen tomorrow at 3:00 PM about invoice 4812."
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            responder = { prompt ->
+                when {
+                    prompt.startsWith("Proofread this raw voice note transcript") ->
+                        "PROOFREAD: $proofreadTranscript"
+                    else -> ""
+                }
+            }
+        )
+
+        val summarizer = FakeSummarizer(result = TitleSummary("Call Dr. Chen", "Follow up on invoice 4812."))
+        val extractor = FakeActionExtractor(items = listOf(ExtractedAction("Call Dr. Chen tomorrow at 3:00 PM")))
+        val bucketer = FakeBucketer(assignment = BucketAssignment("TASK", listOf("invoice"), Tier.FULL))
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript(rawTranscript, Tier.FULL)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = summarizer,
+            extractor = extractor,
+            bucketer = bucketer,
+            dao = dao,
+            proofreader = NanoProofreader(promptClient)
+        )
+
+        // Hard invariant: persisted Note.transcript remains verbatim raw Stage 1 output
+        assertEquals(rawTranscript, outcome.updatedNote.transcript)
+        assertEquals(rawTranscript, dao.byId(noteId)!!.transcript)
+        assertTrue(dao.updateSnapshots.all { it.transcript == rawTranscript })
+
+        // Downstream Stages 2-4 receive the separate proofread workingTranscript
+        assertEquals(proofreadTranscript, outcome.workingTranscript)
+        assertEquals(proofreadTranscript, summarizer.lastTranscript)
+        assertEquals(proofreadTranscript, extractor.lastTranscript)
+        assertEquals(proofreadTranscript, bucketer.lastTranscript)
+
+        assertEquals(
+            "transcribe:OK,proofread:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
+            outcome.updatedNote.stageStatus
+        )
+        assertEquals("FULL", outcome.updatedNote.tierUsed)
+        assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
+    }
+
+    @Test
+    fun proofreader_tier1And2ProbeUnavailable_usesDeterministicCleanerWithoutCallingPromptModel() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val rawTranscript = "  buy   oat milk and call sarah  "
+        val expectedWorking = "Buy oat milk and call sarah."
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.UNAVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE
+            ),
+            dataStore
+        )
+
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            response = "PROOFREAD: Should not be invoked."
+        )
+        val primarySummarizer = FakeSummarizer()
+        val primaryExtractor = FakeActionExtractor()
+        val primaryBucketer = FakeBucketer()
+        val fallbackSummarizer = FakeSummarizer(result = TitleSummary("Oat milk", "Buy oat milk and call Sarah."))
+        val fallbackExtractor = FakeActionExtractor(items = listOf(ExtractedAction("Buy oat milk")))
+        val fallbackBucketer = FakeBucketer(assignment = BucketAssignment("TASK", listOf("groceries"), Tier.CORE))
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript(rawTranscript, Tier.FULL)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = primarySummarizer,
+            extractor = primaryExtractor,
+            bucketer = primaryBucketer,
+            fallbackSummarizer = fallbackSummarizer,
+            fallbackExtractor = fallbackExtractor,
+            fallbackBucketer = fallbackBucketer,
+            dao = dao,
+            proofreader = NanoProofreader(promptClient, DeterministicTranscriptCleaner())
+        )
+
+        assertEquals(0, promptClient.generateCalls)
+        assertEquals(0, primarySummarizer.calls)
+        assertEquals(0, primaryExtractor.calls)
+        assertEquals(0, primaryBucketer.calls)
+        assertEquals(rawTranscript, outcome.updatedNote.transcript)
+        assertEquals(expectedWorking, outcome.workingTranscript)
+        assertEquals(expectedWorking, fallbackSummarizer.lastTranscript)
+        assertEquals(expectedWorking, fallbackExtractor.lastTranscript)
+        assertEquals(expectedWorking, fallbackBucketer.lastTranscript)
+        assertEquals("CORE", outcome.updatedNote.tierUsed)
+        assertEquals(
+            "transcribe:OK,proofread:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
+            outcome.updatedNote.stageStatus
+        )
+    }
+
+    @Test
+    fun proofreader_busyDemotion_fallsBackToDeterministicCleaner_recordsBusyAndSetsNeedsReview() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val rawTranscript = "  call sam tomorrow at 2pm  "
+        val expectedFallback = "Call sam tomorrow at 2pm."
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.UNAVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE,
+                proofreader = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val busyClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            generateException = CapabilityBusyException()
+        )
+        val fallbackSummarizer = FakeSummarizer(result = TitleSummary("Call Sam", "Call Sam tomorrow at 2pm."))
+        val fallbackExtractor = FakeActionExtractor(items = listOf(ExtractedAction("Call Sam tomorrow at 2pm")))
+        val fallbackBucketer = FakeBucketer(assignment = BucketAssignment("TASK", listOf("call"), Tier.CORE))
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript(rawTranscript, Tier.FULL)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(),
+            extractor = FakeActionExtractor(),
+            bucketer = FakeBucketer(),
+            fallbackSummarizer = fallbackSummarizer,
+            fallbackExtractor = fallbackExtractor,
+            fallbackBucketer = fallbackBucketer,
+            dao = dao,
+            proofreader = NanoProofreader(busyClient),
+            fallbackProofreader = DeterministicTranscriptCleaner()
+        )
+
+        assertEquals(1, busyClient.generateCalls)
+        assertEquals(rawTranscript, outcome.updatedNote.transcript)
+        assertEquals(expectedFallback, outcome.workingTranscript)
+        assertEquals(expectedFallback, fallbackSummarizer.lastTranscript)
+        assertEquals(expectedFallback, fallbackExtractor.lastTranscript)
+        assertEquals(expectedFallback, fallbackBucketer.lastTranscript)
+        assertEquals(
+            "transcribe:OK,proofread:BUSY,proofread_fallback:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
+            outcome.updatedNote.stageStatus
+        )
+        assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
+        assertEquals("CORE", outcome.updatedNote.tierUsed)
+
+        // Also verify BUSY status check (without generateText call) demotes cleanly
+        val busyStatusClient = FakeGenAiPromptClient(currentStatus = CapabilityStatus.BUSY)
+        val outcome2 = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript(rawTranscript, Tier.FULL)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(),
+            extractor = FakeActionExtractor(),
+            bucketer = FakeBucketer(),
+            fallbackSummarizer = fallbackSummarizer,
+            fallbackExtractor = fallbackExtractor,
+            fallbackBucketer = fallbackBucketer,
+            dao = dao,
+            proofreader = NanoProofreader(busyStatusClient),
+            fallbackProofreader = DeterministicTranscriptCleaner()
+        )
+        assertEquals(0, busyStatusClient.generateCalls)
+        assertEquals(rawTranscript, outcome2.updatedNote.transcript)
+        assertEquals(expectedFallback, outcome2.workingTranscript)
+        assertEquals(
+            "transcribe:OK,proofread:BUSY,proofread_fallback:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
+            outcome2.updatedNote.stageStatus
+        )
+        assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome2.updatedNote.status)
+        assertEquals("CORE", outcome2.updatedNote.tierUsed)
+    }
+
+    @Test
+    fun proofreader_unexpectedException_recordsFailed_preservesRawTranscriptAndContinuesPipeline() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val rawTranscript = "remind me to email Alex"
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+        val summarizer = FakeSummarizer(result = TitleSummary("Email Alex", "Email Alex."))
+        val extractor = FakeActionExtractor(items = listOf(ExtractedAction("Email Alex")))
+        val bucketer = FakeBucketer(assignment = BucketAssignment("TASK", listOf("email"), Tier.CORE))
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript(rawTranscript, Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = summarizer,
+            extractor = extractor,
+            bucketer = bucketer,
+            dao = dao,
+            proofreader = FakeProofreader(exception = IllegalStateException("Proofreader failed"))
+        )
+
+        assertEquals(rawTranscript, outcome.updatedNote.transcript)
+        assertEquals(rawTranscript, outcome.workingTranscript)
+        assertEquals(rawTranscript, summarizer.lastTranscript)
+        assertEquals(rawTranscript, extractor.lastTranscript)
+        assertEquals(rawTranscript, bucketer.lastTranscript)
+        assertEquals(
+            "transcribe:OK,proofread:FAILED,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
+            outcome.updatedNote.stageStatus
+        )
+        assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
+    }
+
+    @Test
+    fun runningPipelineTwiceWithProofreader_isIdempotent_andNeverDoubleProofreadsRawTranscript() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val rawTranscript = "  remind me to buy milk.  dont forget to call sam  "
+        val proofreadTranscript = "Remind me to buy milk. Don't forget to call Sam."
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val promptInputs = mutableListOf<String>()
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            responder = { prompt ->
+                promptInputs += prompt
+                "PROOFREAD: $proofreadTranscript"
+            }
+        )
+        val proofreader = NanoProofreader(promptClient)
+        val transcriber = FakeTranscriber(result = Transcript(rawTranscript, Tier.FULL))
+        val summarizer = FakeSummarizer(result = TitleSummary("Errands", "Buy milk and call Sam."))
+        val extractor = FakeActionExtractor(
+            items = listOf(
+                ExtractedAction("Remind me to buy milk."),
+                ExtractedAction("Don't forget to call Sam.")
+            )
+        )
+        val bucketer = FakeBucketer(assignment = BucketAssignment("TASK", listOf("errands"), Tier.FULL))
+
+        val outcome1 = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = transcriber,
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = summarizer,
+            extractor = extractor,
+            bucketer = bucketer,
+            dao = dao,
+            proofreader = proofreader
+        )
+        val noteAfterRun1 = dao.byId(noteId)!!
+        val actionsAfterRun1 = dao.actionsFor(noteId).map { it.copy(id = 0L) }
+        val tagsAfterRun1 = dao.tagsFor(noteId)
+
+        val outcome2 = SortingWorker.executePipeline(
+            note = noteAfterRun1,
+            capabilityProbe = probe,
+            transcriber = transcriber,
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = summarizer,
+            extractor = extractor,
+            bucketer = bucketer,
+            dao = dao,
+            proofreader = proofreader
+        )
+        val noteAfterRun2 = dao.byId(noteId)!!
+        val actionsAfterRun2 = dao.actionsFor(noteId).map { it.copy(id = 0L) }
+        val tagsAfterRun2 = dao.tagsFor(noteId)
+
+        assertEquals(rawTranscript, noteAfterRun1.transcript)
+        assertEquals(rawTranscript, noteAfterRun2.transcript)
+        assertEquals(proofreadTranscript, outcome1.workingTranscript)
+        assertEquals(proofreadTranscript, outcome2.workingTranscript)
+        assertEquals(noteAfterRun1, noteAfterRun2)
+        assertEquals(actionsAfterRun1, actionsAfterRun2)
+        assertEquals(tagsAfterRun1, tagsAfterRun2)
+        assertEquals(2, promptInputs.size)
+        assertEquals(promptInputs[0], promptInputs[1])
+        assertEquals(
+            "transcribe:OK,proofread:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
+            noteAfterRun2.stageStatus
+        )
     }
 }
