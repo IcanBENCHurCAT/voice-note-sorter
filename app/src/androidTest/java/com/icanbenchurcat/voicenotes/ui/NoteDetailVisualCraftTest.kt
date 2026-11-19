@@ -31,8 +31,10 @@ import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.NoteSourceType
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import org.junit.Rule
 import org.junit.Test
@@ -436,6 +438,55 @@ class NoteDetailVisualCraftTest {
 
         devAction.performClick()
         assertTrue(devClicked)
+    }
+
+    @Test
+    fun noteDetail_withImageAttachment_displaysImagePreviewAndShareImageOption() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val imageFile = java.io.File(context.cacheDir, "test_detail_preview.png")
+        val bmp = android.graphics.Bitmap.createBitmap(64, 48, android.graphics.Bitmap.Config.ARGB_8888)
+        imageFile.outputStream().use { out ->
+            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        }
+        bmp.recycle()
+
+        try {
+            val note = Note(
+                id = 14L,
+                createdAtEpochMs = 1000L,
+                sourceType = NoteSourceType.IMAGE.name,
+                imagePath = imageFile.absolutePath,
+                title = "Whiteboard capture",
+                transcript = "Call supplier on Monday",
+                bucketKind = "TASK",
+                tierUsed = "CORE",
+                status = NoteStatus.SORTED.name
+            )
+            var sharedImage = false
+
+            composeTestRule.setContent {
+                NoteDetailScreen(
+                    note = note,
+                    buckets = listOf(Bucket("TASK", "Tasks")),
+                    hasImageFile = true,
+                    onShareImage = { sharedImage = true }
+                )
+            }
+
+            composeTestRule.onNodeWithText("Attached image").assertIsDisplayed()
+            composeTestRule.waitUntil(timeoutMillis = 5_000) {
+                composeTestRule.onAllNodes(androidx.compose.ui.test.hasContentDescription("Attached note image"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            composeTestRule.onNodeWithContentDescription("Attached note image").assertIsDisplayed()
+            composeTestRule.onNodeWithText("64 × 48 px • test_detail_preview.png").assertIsDisplayed()
+
+            composeTestRule.onNodeWithContentDescription("Share note").performClick()
+            composeTestRule.onNodeWithText("Share image").assertIsDisplayed().performClick()
+            assertTrue("onShareImage callback should be invoked", sharedImage)
+        } finally {
+            imageFile.delete()
+        }
     }
 
     private fun contrast(a: Color, b: Color): Double {

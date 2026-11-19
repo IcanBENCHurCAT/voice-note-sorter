@@ -64,6 +64,7 @@ class BackupRulesVerificationTest {
 
         assertTrue(cloudExcludes.contains("database" to "."))
         assertTrue(cloudExcludes.contains("file" to "."))
+        assertTrue(cloudExcludes.contains("file" to "images"))
         assertTrue(cloudExcludes.contains("root" to "."))
 
         val d2dNodes = root.getElementsByTagName("device-transfer")
@@ -77,6 +78,7 @@ class BackupRulesVerificationTest {
 
         assertTrue(d2dExcludes.contains("database" to "."))
         assertTrue(d2dExcludes.contains("file" to "."))
+        assertTrue(d2dExcludes.contains("file" to "images"))
         assertTrue(d2dExcludes.contains("root" to "."))
     }
 
@@ -94,7 +96,36 @@ class BackupRulesVerificationTest {
 
         assertTrue(excludes.contains("database" to "."))
         assertTrue(excludes.contains("file" to "."))
+        assertTrue(excludes.contains("file" to "images"))
         assertTrue(excludes.contains("root" to "."))
+    }
+
+    @Test
+    fun filePaths_exposesImagesSubdirectoryForFileProvider() {
+        val filePaths = File(projectRoot, "app/src/main/res/xml/file_paths.xml")
+        val root = parseXml(filePaths)
+        assertEquals("paths", root.tagName)
+        val filesPaths = (0 until root.childNodes.length)
+            .mapNotNull { root.childNodes.item(it) as? Element }
+            .filter { it.tagName == "files-path" }
+            .map { it.getAttribute("name") to it.getAttribute("path") }
+            .toSet()
+        assertTrue(filesPaths.contains("files" to "."))
+        assertTrue(filesPaths.contains("images" to "images/"))
+    }
+
+    @Test
+    fun manifest_declaresZeroCameraGalleryOrInternetPermissions() {
+        val manifestFile = File(projectRoot, "app/src/main/AndroidManifest.xml")
+        val root = parseXml(manifestFile)
+        val perms = root.getElementsByTagName("uses-permission")
+        val names = (0 until perms.length)
+            .map { (perms.item(it) as Element).getAttribute("android:name") }
+            .toSet()
+        assertTrue("CAMERA permission must not be declared", !names.contains("android.permission.CAMERA"))
+        assertTrue("READ_MEDIA_IMAGES permission must not be declared", !names.contains("android.permission.READ_MEDIA_IMAGES"))
+        assertTrue("READ_EXTERNAL_STORAGE permission must not be declared", !names.contains("android.permission.READ_EXTERNAL_STORAGE"))
+        assertTrue("INTERNET permission must not be declared", !names.contains("android.permission.INTERNET"))
     }
 
     @Test

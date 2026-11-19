@@ -141,4 +141,16 @@
     <string name="action_item_set_time">Set due time</string>
     <string name="action_item_clear_due">Clear due date</string>
     <string name="dialog_pick_due_time">Select due time</string>
+    <string name="cd_scan_photo_fab">Scan or pick photo note</string>
+    <string name="dialog_image_capture_title">Add photo note</string>
+    <string name="dialog_image_capture_message">Capture a handwritten page or pick an existing image. Processing stays on-device and requires no camera or gallery permissions.</string>
+    <string name="action_take_photo">Take photo</string>
+    <string name="action_pick_photo">Pick photo</string>
+    <string name="action_share_image">Share image</string>
+    <string name="image_attachment_title">Attached image</string>
+    <string name="cd_attached_image">Attached note image</string>
+    <string name="image_missing_error">Attached image not available on device</string>
+    <string name="image_no_transcript_with_file">No transcribed text yet. The attached image is kept for review; tap Edit to add notes.</string>
+    <string name="badge_image_note">Photo</string>
+    <string name="storage_image_usage">Images</string>
 </resources>

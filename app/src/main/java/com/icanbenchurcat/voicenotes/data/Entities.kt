@@ -15,11 +15,17 @@ enum class NoteStatus {
     NEEDS_REVIEW
 }
 
+/** Origin media type for a [Note]. */
+enum class NoteSourceType {
+    AUDIO,
+    IMAGE
+}
+
 @Entity(tableName = "notes")
 data class Note(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val createdAtEpochMs: Long,
-    val audioPath: String,
+    val audioPath: String = "",
     val transcript: String = "",
     val title: String = "",
     val summary: String = "",
@@ -30,7 +36,13 @@ data class Note(
     val stageStatus: String = "",
     /** RECORDED / TRANSCRIBED / SORTED / NEEDS_REVIEW */
     @ColumnInfo(defaultValue = "'RECORDED'")
-    val status: String = NoteStatus.RECORDED.name
+    val status: String = NoteStatus.RECORDED.name,
+    /** AUDIO / IMAGE */
+    @ColumnInfo(defaultValue = "'AUDIO'")
+    val sourceType: String = NoteSourceType.AUDIO.name,
+    /** App-private image path in filesDir/images/ for IMAGE notes. */
+    @ColumnInfo(defaultValue = "''")
+    val imagePath: String = ""
 )
 
 @Entity(tableName = "buckets")

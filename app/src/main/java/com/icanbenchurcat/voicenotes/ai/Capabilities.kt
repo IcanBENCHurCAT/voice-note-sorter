@@ -34,6 +34,21 @@ interface Proofreader {
     suspend fun proofread(rawTranscript: String): String
 }
 
+interface ImageTranscriber {
+    suspend fun status(): CapabilityStatus
+    /** Transcribe handwritten or printed text from an image file on disk.
+     *  Throws CapabilityBusyException when the backing service asks us
+     *  to back off; the pipeline demotes instead of surfacing an error. */
+    suspend fun transcribeImage(imagePath: String): Transcript
+}
+
+/** Tier 1: no image OCR/transcription. The attached image is kept on the
+ *  note and marked NEEDS_REVIEW for manual entry and filing. */
+object NullImageTranscriber : ImageTranscriber {
+    override suspend fun status(): CapabilityStatus = CapabilityStatus.UNAVAILABLE
+    override suspend fun transcribeImage(imagePath: String): Transcript = Transcript("", Tier.MINIMAL)
+}
+
 interface Summarizer {
     suspend fun status(): CapabilityStatus
     /** Returns a title and a short summary for a transcript. */

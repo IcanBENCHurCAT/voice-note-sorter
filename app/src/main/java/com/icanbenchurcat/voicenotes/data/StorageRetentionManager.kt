@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.icanbenchurcat.voicenotes.capture.ImageFileManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -26,7 +27,8 @@ class StorageRetentionManager(
     private val dao: NoteDao,
     private val audioDir: File,
     private val dbFile: File? = null,
-    private val dataStore: DataStore<Preferences>
+    private val dataStore: DataStore<Preferences>,
+    private val imageDir: File? = null
 ) {
 
     val isAutoDeleteOldAudioEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
@@ -55,36 +57,24 @@ class StorageRetentionManager(
     /**
      * Calculates storage stats:
      * - [audioSizeBytes]: Total bytes used by audio files tracked or stored in [audioDir].
+     * - [imageSizeBytes]: Total bytes used by image files tracked or stored in [imageDir] (`filesDir/images/`).
      * - [databaseSizeBytes]: File size of the SQLite database and its WAL/journal files.
      * - [noteCount]: Total count of notes in the database.
      */
     suspend fun getStorageStats(): StorageStats {
         val notes = dao.allAudioPaths()
-        var audioBytes = 0L
+        val audioBytes = calculateMediaBytes(
+            trackedPaths = notes,
+            directories = listOf(audioDir, File(audioDir, "recordings")),
+            extensions = AUDIO_EXTENSIONS
+        )
 
-        // Track seen files to avoid double-counting if paths overlap with directory list
-        val seenCanonicalPaths = mutableSetOf<String>()
-
-        for (path in notes) {
-            if (path.isNotBlank()) {
-                val f = File(path)
-                if (f.exists() && f.isFile) {
-                    seenCanonicalPaths.add(f.canonicalPath)
-                    audioBytes += f.length()
-                }
-            }
-        }
-
-        if (audioDir.exists() && audioDir.isDirectory) {
-            audioDir.listFiles()?.forEach { file ->
-                val ext = file.extension.lowercase()
-                if (ext == "m4a" || ext == "pcm" || ext == "wav") {
-                    if (seenCanonicalPaths.add(file.canonicalPath)) {
-                        audioBytes += file.length()
-                    }
-                }
-            }
-        }
+        val resolvedImageDir = imageDir ?: File(audioDir, ImageFileManager.IMAGES_DIR_NAME)
+        val imageBytes = calculateMediaBytes(
+            trackedPaths = dao.allImagePaths(),
+            directories = listOf(resolvedImageDir),
+            extensions = ImageFileManager.SUPPORTED_IMAGE_EXTENSIONS
+        )
 
         var dbBytes = 0L
         dbFile?.let { db ->
@@ -101,8 +91,41 @@ class StorageRetentionManager(
         return StorageStats(
             audioSizeBytes = audioBytes,
             databaseSizeBytes = dbBytes,
-            noteCount = notes.size
+            noteCount = notes.size,
+            imageSizeBytes = imageBytes
         )
+    }
+
+    private fun calculateMediaBytes(
+        trackedPaths: List<String>,
+        directories: List<File>,
+        extensions: Set<String>
+    ): Long {
+        var totalBytes = 0L
+        val seenCanonicalPaths = mutableSetOf<String>()
+
+        for (path in trackedPaths) {
+            if (path.isNotBlank()) {
+                val f = File(path)
+                if (f.exists() && f.isFile && seenCanonicalPaths.add(f.canonicalPath)) {
+                    totalBytes += f.length()
+                }
+            }
+        }
+
+        for (dir in directories) {
+            if (dir.exists() && dir.isDirectory) {
+                dir.listFiles()?.forEach { file ->
+                    if (file.isFile && file.extension.lowercase() in extensions) {
+                        if (seenCanonicalPaths.add(file.canonicalPath)) {
+                            totalBytes += file.length()
+                        }
+                    }
+                }
+            }
+        }
+
+        return totalBytes
     }
 
     /**
@@ -154,6 +177,7 @@ class StorageRetentionManager(
         val PREF_AUTO_DELETE_OLD_AUDIO = booleanPreferencesKey("auto_delete_old_audio_90_days")
         val PREF_DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
         const val NINETY_DAYS_MS = 90L * 24 * 60 * 60 * 1000L // 7,776,000,000 ms
+        private val AUDIO_EXTENSIONS = setOf("m4a", "pcm", "wav")
 
         @Volatile
         private var defaultDataStore: DataStore<Preferences>? = null
@@ -173,13 +197,15 @@ class StorageRetentionManager(
             val appContext = context.applicationContext
             val db = AppDatabase.get(appContext)
             val audioDir = appContext.filesDir
+            val imageDir = File(audioDir, ImageFileManager.IMAGES_DIR_NAME)
             val dbFile = appContext.getDatabasePath("voice-notes.db")
             val actualDataStore = dataStore ?: getOrCreateDataStore(appContext)
             return StorageRetentionManager(
                 dao = db.noteDao(),
                 audioDir = audioDir,
                 dbFile = dbFile,
-                dataStore = actualDataStore
+                dataStore = actualDataStore,
+                imageDir = imageDir
             )
         }
     }
@@ -188,5 +214,6 @@ class StorageRetentionManager(
 data class StorageStats(
     val audioSizeBytes: Long,
     val databaseSizeBytes: Long,
-    val noteCount: Int
+    val noteCount: Int,
+    val imageSizeBytes: Long = 0L
 )

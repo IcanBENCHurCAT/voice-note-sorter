@@ -23,6 +23,7 @@ import kotlinx.coroutines.sync.withLock
  */
 interface CapabilityChecker {
     suspend fun checkTranscriber(): CapabilityStatus
+    suspend fun checkImageTranscriber(): CapabilityStatus = CapabilityStatus.AVAILABLE
     suspend fun checkSummarizer(): CapabilityStatus
     suspend fun checkActionExtractor(): CapabilityStatus
     suspend fun checkProofreader(): CapabilityStatus = checkSummarizer()
@@ -34,7 +35,8 @@ interface CapabilityChecker {
 /**
  * Production [CapabilityChecker] that queries [NanoTranscriber] (which isolates
  * all ML Kit GenAI speech imports in `Transcribers.kt`), [GenAiPromptClient]
- * (which isolates all ML Kit GenAI Prompt imports in `GenerativeAi.kt`), and
+ * (which isolates all ML Kit GenAI Prompt imports in `GenerativeAi.kt`),
+ * [MlKitOcrImageTranscriber] (bundled offline OCR in `ImageTranscribers.kt`), and
  * [PlatformTranscriber] saved-file transcription availability on the running device.
  */
 class DeviceCapabilityChecker(
@@ -44,6 +46,7 @@ class DeviceCapabilityChecker(
 
     private val nanoTranscriber = NanoTranscriber(context)
     private val platformTranscriber = PlatformTranscriber(context)
+    private val ocrImageTranscriber = MlKitOcrImageTranscriber(context)
 
     override suspend fun checkTranscriber(): CapabilityStatus {
         val nanoStatus = nanoTranscriber.status()
@@ -56,6 +59,23 @@ class DeviceCapabilityChecker(
         }
 
         if (nanoStatus == CapabilityStatus.DOWNLOADABLE) {
+            return CapabilityStatus.DOWNLOADABLE
+        }
+
+        return CapabilityStatus.UNAVAILABLE
+    }
+
+    override suspend fun checkImageTranscriber(): CapabilityStatus {
+        val foundationStatus = probeFoundationModelStatus()
+        if (foundationStatus == CapabilityStatus.AVAILABLE || foundationStatus == CapabilityStatus.BUSY) {
+            return foundationStatus
+        }
+
+        if (ocrImageTranscriber.status() == CapabilityStatus.AVAILABLE) {
+            return CapabilityStatus.AVAILABLE
+        }
+
+        if (foundationStatus == CapabilityStatus.DOWNLOADABLE) {
             return CapabilityStatus.DOWNLOADABLE
         }
 
@@ -152,6 +172,9 @@ class CapabilityProbe(
     suspend fun transcriberStatus(): CapabilityStatus =
         getOrProbe(KEY_TRANSCRIBER) { checker.checkTranscriber() }
 
+    suspend fun imageTranscriberStatus(): CapabilityStatus =
+        getOrProbe(KEY_IMAGE_TRANSCRIBER) { checker.checkImageTranscriber() }
+
     suspend fun summarizerStatus(): CapabilityStatus =
         getOrProbe(KEY_SUMMARIZER) { checker.checkSummarizer() }
 
@@ -242,6 +265,7 @@ class CapabilityProbe(
         private const val TAG = "CapabilityProbe"
         private const val DATASTORE_NAME = "capability_probe_cache"
         private const val KEY_TRANSCRIBER = "transcriber"
+        private const val KEY_IMAGE_TRANSCRIBER = "image_transcriber"
         private const val KEY_SUMMARIZER = "summarizer"
         private const val KEY_ACTIONS = "actions"
         private const val KEY_PROOFREADER = "proofreader"
