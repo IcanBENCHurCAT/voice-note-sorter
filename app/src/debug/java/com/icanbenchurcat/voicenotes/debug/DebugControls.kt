@@ -3,10 +3,13 @@
 package com.icanbenchurcat.voicenotes.debug
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -15,8 +18,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
@@ -179,13 +186,20 @@ object DebugSeedData {
 fun DebugSeedToolbar(db: AppDatabase, onReset: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
+    val devOptionsDesc = stringResource(R.string.settings_developer_mode_title)
 
     Box {
         IconButton(
             onClick = { expanded = true },
-            modifier = Modifier.semantics { contentDescription = "Developer options" }
+            modifier = Modifier
+                .size(48.dp)
+                .testTag("developer_options_action")
+                .semantics { contentDescription = devOptionsDesc }
         ) {
-            Text("🛠", style = MaterialTheme.typography.titleMedium)
+            Icon(
+                imageVector = Icons.Default.Build,
+                contentDescription = null
+            )
         }
         DropdownMenu(
             expanded = expanded,
