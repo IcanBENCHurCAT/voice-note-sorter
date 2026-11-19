@@ -11,10 +11,16 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -62,8 +68,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
@@ -364,11 +372,12 @@ fun NotesListScreen(
             }
             return
         }
+        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("notes_list"),
-            contentPadding = PaddingValues(bottom = 80.dp)
+            contentPadding = PaddingValues(bottom = 80.dp + navBarBottom)
         ) {
             items(displayedNotes, key = { it.id }) { note ->
                 val deduplicatedSummary = remember(note.title, note.summary) {
@@ -526,7 +535,8 @@ fun NoteDetailScreen(
     onShareText: () -> Unit = {},
     onShareAudio: () -> Unit = {},
     hasAudioFile: Boolean = false,
-    onManageBuckets: (() -> Unit)? = null
+    onManageBuckets: (() -> Unit)? = null,
+    developerActions: @Composable RowScope.() -> Unit = {}
 ) {
     var isEditing by rememberSaveable { mutableStateOf(false) }
     var editTitle by rememberSaveable(note.id, isEditing) { mutableStateOf(note.title) }
@@ -594,6 +604,7 @@ fun NoteDetailScreen(
                     Text(
                         text = note.title.ifBlank { "Untitled note" },
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
@@ -670,6 +681,7 @@ fun NoteDetailScreen(
                             }
                         }
                     }
+                    developerActions()
                     Box {
                         IconButton(
                             onClick = { showOverflowMenu = true },
@@ -706,13 +718,20 @@ fun NoteDetailScreen(
             )
         }
     ) { innerPadding ->
+        val layoutDirection = LocalLayoutDirection.current
+        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(top = innerPadding.calculateTopPadding())
                 .clipToBounds()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+                .padding(
+                    start = 16.dp + innerPadding.calculateStartPadding(layoutDirection),
+                    end = 16.dp + innerPadding.calculateEndPadding(layoutDirection),
+                    top = 16.dp,
+                    bottom = 16.dp + maxOf(innerPadding.calculateBottomPadding(), navBarBottom)
+                )
                 .testTag("note_detail_content")
         ) {
         if (isEditing) {
