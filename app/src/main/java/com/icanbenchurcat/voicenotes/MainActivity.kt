@@ -89,6 +89,7 @@ import com.icanbenchurcat.voicenotes.ui.CapabilitySettingsUiState
 import com.icanbenchurcat.voicenotes.ui.NoteDetailScreen
 import com.icanbenchurcat.voicenotes.ui.NoteShareHelper
 import com.icanbenchurcat.voicenotes.ui.NotesListScreen
+import com.icanbenchurcat.voicenotes.ui.RootTopAppBar
 import com.icanbenchurcat.voicenotes.ui.SettingsScreen
 import com.icanbenchurcat.voicenotes.ui.TasksScreen
 import com.icanbenchurcat.voicenotes.ui.theme.VoiceNoteSorterTheme
@@ -317,6 +318,7 @@ class MainActivity : ComponentActivity() {
                     topBar = {
                         if (isRootTab) {
                             RootTopAppBar(
+                                onManageBuckets = { showBucketManagementDialog = true },
                                 onOpenSettings = { backStack.add(SettingsKey) },
                                 developerActions = developerTopBarAction
                             )
@@ -414,7 +416,6 @@ class MainActivity : ComponentActivity() {
                                             tasks = tasks,
                                             tags = allTags.map { it.name },
                                             noteTags = allNoteTags,
-                                            onManageBuckets = { showBucketManagementDialog = true }
                                         ) { note ->
                                             backStack.add(NoteDetailKey(note.id))
                                         }
@@ -627,32 +628,6 @@ class MainActivity : ComponentActivity() {
             return false
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun RootTopAppBar(
-    onOpenSettings: () -> Unit,
-    developerActions: @Composable RowScope.() -> Unit = {}
-) {
-    TopAppBar(
-        title = { Text(stringResource(R.string.app_name)) },
-        actions = {
-            developerActions()
-            val settingsDesc = stringResource(R.string.action_settings)
-            IconButton(
-                onClick = onOpenSettings,
-                modifier = Modifier
-                    .size(48.dp)
-                    .semantics { contentDescription = settingsDesc }
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = null
-                )
-            }
-        }
-    )
 }
 
 @Composable
