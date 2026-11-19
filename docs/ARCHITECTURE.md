@@ -32,17 +32,30 @@ When a recording is stopped, the service persists a new `Note` entity (status `R
 Five stages, each independently failable and independently tiered:
 
 1. **Transcribe** - speech to text (Nano Advanced / Basic / platform / none)
-2. **Title and summarise** - generative on Tier 3; extractive (first
-   sentence, key phrases) on Tier 2; timestamp title on Tier 1
-3. **Extract actions** - Prompt API structured output on Tier 3;
-   pattern heuristics ("remind me", "need to", dates) below that
-4. **Bucket and tag** - model classification on Tier 3; keyword rules
-   below; default bucket is Inbox, never a dead end
-5. **Embed** - semantic vectors on Tier 3 only; search falls back to FTS
+2. **Title and summarise** - Tier 3 Prompt API (`GenerateTypedContentRequest`
+   structured output when supported, automatic plain-text + regex fallback
+   otherwise); extractive (`ExtractiveSummarizer`) on Tier 2; timestamp title on Tier 1
+3. **Extract actions** - Tier 3 Prompt API (`GenerateTypedContentRequest`
+   structured output when supported, automatic plain-text + regex fallback
+   otherwise) with `PlatformDateParser` due-date resolution; pattern
+   heuristics (`HeuristicActionExtractor`) below that
+4. **Bucket and tag** - Tier 3 Prompt API (`GenerateTypedContentRequest`
+   structured output against the active `BucketProfile` when supported,
+   automatic plain-text + regex fallback otherwise); keyword rules
+   (`HeuristicBucketer`) below; default bucket is Inbox, never a dead end
+5. **Embed** - planned semantic vectors on Tier 3 (deferred; `NoOpEmbedder` today, search falls back to FTS)
 
-A stage that cannot run (capability absent, AICore BUSY, quota) records
-its status on the note and the pipeline continues. A background retry pass
-upgrades notes when a higher capability becomes available.
+When Stages 2–4 run on Tier 3 (`NanoSummarizer`, `NanoActionExtractor`,
+`NanoBucketer`) with a shared `GenAiPromptClient`, `SortingWorker` opens a
+single `GenAiPromptSession`, warms up the model before Stage 2, attaches
+shared `SystemInstruction` (role framing) and transcript `PromptPrefix`
+(when supported by the model) so KV prefix state can be reused across all
+three stages, and clears implicit caches + closes the session in `finally`.
+A stage that cannot run (capability absent, AICore `BUSY`, quota, or
+unparseable output) records its status (`:BUSY` / `:FAILED`) or Tier 2
+demotion on the note and the pipeline continues (`CapabilityBusyException`
+marks the note `NEEDS_REVIEW`). See
+`docs/adr/0005-structured-output-and-prefix-caching.md`.
 
 ## Capability detection
 
