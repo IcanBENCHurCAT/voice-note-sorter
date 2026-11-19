@@ -2,30 +2,34 @@
 
 package com.icanbenchurcat.voicenotes.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -148,6 +153,8 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
+        val showSharedFoundationModelNote = shouldShowSharedFoundationModelBanner(uiState)
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -184,6 +191,12 @@ fun SettingsScreen(
                 )
             }
 
+            if (showSharedFoundationModelNote) {
+                item {
+                    SharedFoundationModelBanner()
+                }
+            }
+
             item {
                 CapabilityItemCard(
                     name = stringResource(R.string.cap_summarization_name),
@@ -191,6 +204,7 @@ fun SettingsScreen(
                     description = stringResource(R.string.cap_summarization_desc),
                     unavailableReason = stringResource(R.string.cap_summarization_unavailable_reason),
                     isDownloading = uiState.isDownloadingSummarizer,
+                    showDownloadableNote = !showSharedFoundationModelNote,
                     onDownloadClick = onDownloadSummarizer
                 )
             }
@@ -202,6 +216,7 @@ fun SettingsScreen(
                     description = stringResource(R.string.cap_action_extraction_desc),
                     unavailableReason = stringResource(R.string.cap_action_extraction_unavailable_reason),
                     isDownloading = uiState.isDownloadingActionExtractor,
+                    showDownloadableNote = !showSharedFoundationModelNote,
                     onDownloadClick = onDownloadActionExtractor
                 )
             }
@@ -211,6 +226,7 @@ fun SettingsScreen(
                     onClick = onRefreshProbe,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
                         .padding(vertical = 8.dp),
                     enabled = !uiState.isLoading
                 ) {
@@ -258,6 +274,37 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.height(24.dp))
             }
+        }
+    }
+}
+
+internal fun shouldShowSharedFoundationModelBanner(uiState: CapabilitySettingsUiState): Boolean =
+    uiState.summarizerStatus == CapabilityStatus.DOWNLOADABLE &&
+        uiState.actionExtractorStatus == CapabilityStatus.DOWNLOADABLE
+
+internal fun canDeleteAllNotes(storageStats: StorageStats): Boolean =
+    storageStats.noteCount > 0 || storageStats.audioSizeBytes > 0L
+
+@Composable
+fun SharedFoundationModelBanner() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = stringResource(R.string.cap_shared_model_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.cap_shared_model_body),
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
@@ -377,8 +424,11 @@ fun CapabilityItemCard(
     description: String,
     unavailableReason: String,
     isDownloading: Boolean = false,
+    showDownloadableNote: Boolean = true,
     onDownloadClick: (() -> Unit)? = null
 ) {
+    val isDownloadableAction = status == CapabilityStatus.DOWNLOADABLE && !isDownloading
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -394,13 +444,17 @@ fun CapabilityItemCard(
                 Text(
                     text = name,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)
                 )
-                StatusChip(
-                    status = status,
-                    isDownloading = isDownloading,
-                    onDownloadClick = onDownloadClick
-                )
+                if (!isDownloadableAction) {
+                    StatusBadge(
+                        status = status,
+                        isDownloading = isDownloading
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -411,10 +465,34 @@ fun CapabilityItemCard(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            if (status != CapabilityStatus.AVAILABLE || isDownloading) {
+            if (isDownloadableAction) {
+                if (showDownloadableNote) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.cap_downloadable_reason),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                val downloadDesc = stringResource(R.string.cd_download_model_for_capability, name)
+                FilledTonalButton(
+                    onClick = { onDownloadClick?.invoke() },
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .semantics { contentDescription = downloadDesc }
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_download),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = stringResource(R.string.action_download_model))
+                }
+            } else if (status != CapabilityStatus.AVAILABLE || isDownloading) {
                 val statusNote = when {
                     isDownloading -> stringResource(R.string.cap_downloading_reason)
-                    status == CapabilityStatus.DOWNLOADABLE -> stringResource(R.string.cap_downloadable_reason)
                     status == CapabilityStatus.BUSY -> stringResource(R.string.cap_busy_reason)
                     else -> unavailableReason
                 }
@@ -424,7 +502,7 @@ fun CapabilityItemCard(
                 Text(
                     text = statusNote,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -432,60 +510,45 @@ fun CapabilityItemCard(
 }
 
 @Composable
-fun StatusChip(
+fun StatusBadge(
     status: CapabilityStatus,
-    isDownloading: Boolean = false,
-    onDownloadClick: (() -> Unit)? = null
+    isDownloading: Boolean = false
 ) {
-    val (label, chipColors) = when {
-        isDownloading -> Pair(
+    val (label, containerColor, contentColor) = when {
+        isDownloading -> Triple(
             stringResource(R.string.status_downloading),
-            SuggestionChipDefaults.suggestionChipColors(
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                labelColor = MaterialTheme.colorScheme.onTertiaryContainer
-            )
+            MaterialTheme.colorScheme.tertiaryContainer,
+            MaterialTheme.colorScheme.onTertiaryContainer
         )
-        status == CapabilityStatus.AVAILABLE -> Pair(
+        status == CapabilityStatus.AVAILABLE -> Triple(
             stringResource(R.string.status_available),
-            SuggestionChipDefaults.suggestionChipColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                labelColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.onPrimaryContainer
         )
-        status == CapabilityStatus.DOWNLOADABLE -> Pair(
-            stringResource(R.string.status_downloadable),
-            SuggestionChipDefaults.suggestionChipColors(
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                labelColor = MaterialTheme.colorScheme.onTertiaryContainer
-            )
-        )
-        status == CapabilityStatus.BUSY -> Pair(
+        status == CapabilityStatus.BUSY -> Triple(
             stringResource(R.string.status_busy),
-            SuggestionChipDefaults.suggestionChipColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-            )
+            MaterialTheme.colorScheme.secondaryContainer,
+            MaterialTheme.colorScheme.onSecondaryContainer
         )
-        else -> Pair(
+        else -> Triple(
             stringResource(R.string.status_unavailable),
-            SuggestionChipDefaults.suggestionChipColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                labelColor = MaterialTheme.colorScheme.outline
-            )
+            MaterialTheme.colorScheme.surfaceContainerHighest,
+            MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 
-    SuggestionChip(
-        onClick = {
-            if (!isDownloading && status == CapabilityStatus.DOWNLOADABLE) {
-                onDownloadClick?.invoke()
-            }
-        },
-        enabled = !isDownloading,
-        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-        colors = chipColors,
-        border = null
-    )
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = containerColor,
+        contentColor = contentColor
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        )
+    }
 }
 
 @Composable
@@ -495,51 +558,70 @@ fun StorageStatsCard(
     onToggleAutoDelete: (Boolean) -> Unit,
     onDeleteAllNotes: () -> Unit = {}
 ) {
-    Card(
+    val canDelete = canDeleteAllNotes(storageStats)
+
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.storage_audio_usage),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text(
-                    text = formatFileSize(storageStats.audioSizeBytes),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.storage_audio_usage),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = formatFileSize(storageStats.audioSizeBytes),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.storage_database_usage),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "${formatFileSize(storageStats.databaseSizeBytes)} (${stringResource(R.string.storage_note_count, storageStats.noteCount)})",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
+        }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.storage_database_usage),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text(
-                    text = "${formatFileSize(storageStats.databaseSizeBytes)} (${stringResource(R.string.storage_note_count, storageStats.noteCount)})",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -547,7 +629,8 @@ fun StorageStatsCard(
                     Text(
                         text = stringResource(R.string.storage_auto_delete_title),
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -565,20 +648,47 @@ fun StorageStatsCard(
                     }
                 )
             }
+        }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-            val deleteAllDesc = stringResource(R.string.cd_delete_all_notes)
-            OutlinedButton(
-                onClick = onDeleteAllNotes,
-                enabled = storageStats.noteCount > 0 || storageStats.audioSizeBytes > 0L,
-                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { contentDescription = deleteAllDesc }
-            ) {
-                Text(stringResource(R.string.action_delete_all_notes))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                val deleteAllDesc = stringResource(R.string.cd_delete_all_notes)
+                OutlinedButton(
+                    onClick = onDeleteAllNotes,
+                    enabled = canDelete,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = if (canDelete) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant
+                        }
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .semantics { contentDescription = deleteAllDesc }
+                ) {
+                    Text(stringResource(R.string.action_delete_all_notes))
+                }
+
+                if (!canDelete) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.storage_delete_all_empty_reason),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
