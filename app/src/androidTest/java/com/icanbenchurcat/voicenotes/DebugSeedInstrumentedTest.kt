@@ -19,16 +19,22 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.StorageRetentionManager
+import com.icanbenchurcat.voicenotes.ui.NoteCardFormatting
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.math.abs
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 @RunWith(AndroidJUnit4::class)
 class DebugSeedInstrumentedTest {
@@ -100,6 +106,7 @@ class DebugSeedInstrumentedTest {
         }
 
         // 2. Verify DB contents cover all 5 default buckets, Tier 1 no-transcript, actions (done & not done), and tags on >= 2 notes
+        var expectedFormattedDue = ""
         runBlocking {
             val notes = dao.observeAll().first()
             val bucketsCovered = notes.map { it.bucketKind }.toSet()
@@ -113,9 +120,29 @@ class DebugSeedInstrumentedTest {
             assertTrue(actions.any { it.done })
             assertTrue(actions.any { !it.done })
 
+            val electricianAction = actions.first { it.text.contains("Call electrician") }
+            assertNotNull(electricianAction.dueAtEpochMs)
+            val dueAtMs = electricianAction.dueAtEpochMs!!
+            val dueDateTime = LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(dueAtMs),
+                ZoneId.systemDefault()
+            )
+            assertEquals(DayOfWeek.FRIDAY, dueDateTime.dayOfWeek)
+            assertEquals(17, dueDateTime.hour)
+            assertEquals(0, dueDateTime.minute)
+            expectedFormattedDue = "Due: ${NoteCardFormatting.formatDueDate(dueAtMs)}"
+
             val notesWithTags = notes.count { dao.tagsFor(it.id).isNotEmpty() }
             assertTrue("Expected tags on at least 2 notes, got $notesWithTags", notesWithTags >= 2)
         }
+
+        // Verify shared due date formatting on Tasks tab matches NoteDetailScreen
+        composeRule.onNodeWithTag("tab_tasks").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText(expectedFormattedDue).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText(expectedFormattedDue).assertIsDisplayed()
+        composeRule.onNodeWithTag("tab_notes").performClick()
 
         // 3. Scroll to and open the TASK note detail screen and verify tags & action items render
         composeRule.onNodeWithTag("notes_list").performScrollToNode(hasText("Kitchen electrical work"))
@@ -129,6 +156,7 @@ class DebugSeedInstrumentedTest {
         composeRule.onNodeWithText("#errands").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("#renovation").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Call electrician about kitchen wiring").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText(expectedFormattedDue).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Pick up 14-gauge copper wire from Home Depot").performScrollTo().assertIsDisplayed()
 
         // 4. Clear data and re-seed without reinstalling

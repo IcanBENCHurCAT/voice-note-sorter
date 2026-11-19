@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 class FakeTranscriber(
     private val result: Transcript? = null,
@@ -160,6 +161,7 @@ class InMemoryFakeNoteDao : NoteDao {
     val notes = mutableMapOf<Long, Note>()
     val updateSnapshots = mutableListOf<Note>()
     private val actions = mutableListOf<ActionItem>()
+    private val _actionsVersion = MutableStateFlow(0L)
     private val buckets = mutableMapOf<String, Bucket>()
     private val _bucketsFlow = MutableStateFlow<List<Bucket>>(emptyList())
     private val tags = mutableSetOf<String>()
@@ -233,20 +235,51 @@ class InMemoryFakeNoteDao : NoteDao {
     override suspend fun insertActions(items: List<ActionItem>) {
         items.forEach { item ->
             val id = if (item.id == 0L) nextActionId++ else item.id
+            if (id >= nextActionId) nextActionId = id + 1
+            actions.removeAll { it.id == id }
             actions += item.copy(id = id)
+        }
+        _actionsVersion.value += 1
+    }
+
+    override suspend fun insertAction(item: ActionItem): Long {
+        val id = if (item.id == 0L) nextActionId++ else item.id
+        if (id >= nextActionId) nextActionId = id + 1
+        actions.removeAll { it.id == id }
+        actions += item.copy(id = id)
+        _actionsVersion.value += 1
+        return id
+    }
+
+    override suspend fun updateAction(id: Long, text: String, dueAtEpochMs: Long?) {
+        val index = actions.indexOfFirst { it.id == id }
+        if (index != -1) {
+            actions[index] = actions[index].copy(text = text, dueAtEpochMs = dueAtEpochMs)
+            _actionsVersion.value += 1
         }
     }
 
+    override suspend fun deleteActionById(id: Long) {
+        if (actions.removeAll { it.id == id }) {
+            _actionsVersion.value += 1
+        }
+    }
+
+    override suspend fun actionById(id: Long): ActionItem? =
+        actions.firstOrNull { it.id == id }
+
     override suspend fun deleteActionsForNote(noteId: Long) {
         actions.removeAll { it.noteId == noteId }
+        _actionsVersion.value += 1
     }
 
     override suspend fun deleteAllActions() {
         actions.clear()
+        _actionsVersion.value += 1
     }
 
     override fun observeActionsFor(noteId: Long): Flow<List<ActionItem>> =
-        flowOf(actions.filter { it.noteId == noteId }.sortedBy { it.id })
+        _actionsVersion.map { actions.filter { it.noteId == noteId }.sortedBy { it.id } }
 
     override suspend fun actionsFor(noteId: Long): List<ActionItem> =
         actions.filter { it.noteId == noteId }.sortedBy { it.id }
@@ -257,26 +290,27 @@ class InMemoryFakeNoteDao : NoteDao {
         return 1L
     }
 
-    override fun observeAllActions(): Flow<List<ActionItemWithNote>> {
-        val result = actions.map { action ->
-            val noteTitle = notes[action.noteId]?.title.orEmpty()
-            ActionItemWithNote(
-                id = action.id,
-                noteId = action.noteId,
-                text = action.text,
-                dueAtEpochMs = action.dueAtEpochMs,
-                done = action.done,
-                noteTitle = noteTitle
-            )
-        }.sortedWith(compareBy<ActionItemWithNote> { it.done }.thenByDescending { it.id })
-        return flowOf(result)
-    }
+    override fun observeAllActions(): Flow<List<ActionItemWithNote>> =
+        _actionsVersion.map {
+            actions.map { action ->
+                val noteTitle = notes[action.noteId]?.title.orEmpty()
+                ActionItemWithNote(
+                    id = action.id,
+                    noteId = action.noteId,
+                    text = action.text,
+                    dueAtEpochMs = action.dueAtEpochMs,
+                    done = action.done,
+                    noteTitle = noteTitle
+                )
+            }.sortedWith(compareBy<ActionItemWithNote> { it.done }.thenByDescending { it.id })
+        }
 
     override suspend fun updateActionDone(id: Long, done: Boolean) {
         val index = actions.indexOfFirst { it.id == id }
         if (index != -1) {
             val existing = actions[index]
             actions[index] = existing.copy(done = done)
+            _actionsVersion.value += 1
         }
     }
 

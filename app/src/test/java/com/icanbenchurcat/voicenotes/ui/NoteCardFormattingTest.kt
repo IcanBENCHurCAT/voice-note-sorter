@@ -5,6 +5,14 @@ package com.icanbenchurcat.voicenotes.ui
 import com.icanbenchurcat.voicenotes.data.Bucket
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.Clock
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.util.Locale
+import java.util.TimeZone
 
 class NoteCardFormattingTest {
 
@@ -109,5 +117,75 @@ class NoteCardFormattingTest {
         assertEquals("Action Items", NoteCardFormatting.formatBucketDisplayName("TASK", renamedBuckets))
         assertEquals("Client Projects", NoteCardFormatting.formatBucketDisplayName("CUSTOM_PROJ", renamedBuckets))
         assertEquals("Work Projects", NoteCardFormatting.formatBucketDisplayName("WORK_PROJECTS"))
+    }
+
+    @Test
+    fun formatDueDate_formatsMonthDayAndTimeConsistently() {
+        val tz = TimeZone.getTimeZone("America/New_York")
+        val zone = tz.toZoneId()
+        val friday5pmEpochMs = LocalDateTime.of(2026, 11, 20, 17, 0)
+            .atZone(zone)
+            .toInstant()
+            .toEpochMilli()
+
+        assertEquals(
+            "Nov 20, 5:00 PM",
+            NoteCardFormatting.formatDueDate(friday5pmEpochMs, Locale.US, tz)
+        )
+        assertEquals(
+            "Nov 20, 2026",
+            NoteCardFormatting.formatDueDateOnly(friday5pmEpochMs, Locale.US, tz)
+        )
+        assertEquals(
+            "5:00 PM",
+            NoteCardFormatting.formatDueTimeOnly(friday5pmEpochMs, Locale.US, tz)
+        )
+        assertEquals("", NoteCardFormatting.formatDueDate(0L, Locale.US, tz))
+        assertEquals("", NoteCardFormatting.formatDueDate(-100L, Locale.US, tz))
+    }
+
+    @Test
+    fun mergePickedDateAndTime_handlesNegativeUtcOffsetWithoutOffByOneDay() {
+        val nyZone = ZoneId.of("America/New_York")
+        val initialFriday5pm = LocalDateTime.of(2026, 11, 20, 17, 0)
+            .atZone(nyZone)
+            .toInstant()
+            .toEpochMilli()
+
+        // Material 3 DatePicker returns UTC midnight for Nov 23, 2026
+        val nov23UtcMidnight = LocalDate.of(2026, 11, 23)
+            .atStartOfDay(ZoneOffset.UTC)
+            .toInstant()
+            .toEpochMilli()
+
+        // Updating date preserves existing 5:00 PM local time and lands on Nov 23 (not Nov 22!)
+        val updatedDate = NoteCardFormatting.mergePickedDate(
+            existingDueAtEpochMs = initialFriday5pm,
+            utcSelectedDateMillis = nov23UtcMidnight,
+            zone = nyZone
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 11, 23, 17, 0),
+            LocalDateTime.ofInstant(Instant.ofEpochMilli(updatedDate), nyZone)
+        )
+
+        // Updating time preserves Nov 23 date
+        val clock = Clock.fixed(Instant.ofEpochMilli(updatedDate), nyZone)
+        val updatedTime = NoteCardFormatting.mergePickedTime(
+            existingDueAtEpochMs = updatedDate,
+            hour = 14,
+            minute = 30,
+            clock = clock
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 11, 23, 14, 30),
+            LocalDateTime.ofInstant(Instant.ofEpochMilli(updatedTime), nyZone)
+        )
+
+        // Converting back to DatePicker initial UTC millis gives UTC midnight of Nov 23
+        assertEquals(
+            nov23UtcMidnight,
+            NoteCardFormatting.toDatePickerInitialUtcMillis(updatedTime, clock)
+        )
     }
 }

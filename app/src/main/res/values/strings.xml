@@ -127,4 +127,13 @@
     <string name="action_view_all_notes">View all notes</string>
     <string name="settings_developer_mode_title">Developer options</string>
     <string name="settings_developer_mode_subtitle">Show sample data and reset controls on the home screen</string>
+    <string name="action_items_heading">Action items</string>
+    <string name="action_item_add">Add task</string>
+    <string name="action_item_add_confirm">Add</string>
+    <string name="action_item_text_label">Task</string>
+    <string name="error_empty_action_item">Task cannot be empty</string>
+    <string name="action_item_set_date">Set due date</string>
+    <string name="action_item_set_time">Set due time</string>
+    <string name="action_item_clear_due">Clear due date</string>
+    <string name="dialog_pick_due_time">Select due time</string>
 </resources>

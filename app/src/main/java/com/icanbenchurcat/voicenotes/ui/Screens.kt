@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -51,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -628,6 +630,9 @@ fun NoteDetailScreen(
     onBack: (() -> Unit)? = null,
     onConfirmOrChangeBucket: (String) -> Unit = {},
     onToggleActionDone: ((Long, Boolean) -> Unit)? = null,
+    onAddAction: (text: String, dueAtEpochMs: Long?) -> Unit = { _, _ -> },
+    onUpdateAction: (id: Long, text: String, dueAtEpochMs: Long?) -> Unit = { _, _, _ -> },
+    onDeleteAction: (id: Long) -> Unit = {},
     onDeleteNote: () -> Unit = {},
     audioPlaybackState: AudioPlaybackState = rememberAudioPlayerState(note.audioPath),
     onSaveEdit: (title: String, transcript: String) -> Unit = { _, _ -> },
@@ -640,6 +645,8 @@ fun NoteDetailScreen(
     var isEditing by rememberSaveable { mutableStateOf(false) }
     var editTitle by rememberSaveable(note.id, isEditing) { mutableStateOf(note.title) }
     var editTranscript by rememberSaveable(note.id, isEditing) { mutableStateOf(note.transcript) }
+    var editingActionId by rememberSaveable(note.id) { mutableStateOf<Long?>(null) }
+    var isAddingAction by rememberSaveable(note.id) { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showShareMenu by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
@@ -660,10 +667,15 @@ fun NoteDetailScreen(
         }
     }
 
-    BackHandler(enabled = isEditing) {
-        isEditing = false
-        editTitle = note.title
-        editTranscript = note.transcript
+    BackHandler(enabled = isEditing || isAddingAction || editingActionId != null) {
+        if (isEditing) {
+            isEditing = false
+            editTitle = note.title
+            editTranscript = note.transcript
+        } else {
+            isAddingAction = false
+            editingActionId = null
+        }
     }
 
     if (showDeleteConfirmDialog) {
@@ -1022,13 +1034,68 @@ fun NoteDetailScreen(
                 )
             }
         }
-        if (actions.isNotEmpty()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = "Action items",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                text = stringResource(R.string.action_items_heading),
+                style = MaterialTheme.typography.titleSmall
             )
-            actions.forEach { item ->
+            TextButton(
+                onClick = {
+                    editingActionId = null
+                    isAddingAction = true
+                },
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .semantics { contentDescription = "Add action item" }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(stringResource(R.string.action_item_add))
+            }
+        }
+        if (isAddingAction) {
+            InlineActionItemEditor(
+                editorKey = "add_${note.id}",
+                initialText = "",
+                initialDueAtEpochMs = null,
+                confirmLabel = stringResource(R.string.action_item_add_confirm),
+                onSave = { newText, newDueAtEpochMs ->
+                    onAddAction(newText, newDueAtEpochMs)
+                    isAddingAction = false
+                },
+                onCancel = { isAddingAction = false },
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
+        actions.forEach { item ->
+            if (editingActionId == item.id) {
+                InlineActionItemEditor(
+                    editorKey = "edit_${note.id}_${item.id}",
+                    initialText = item.text,
+                    initialDueAtEpochMs = item.dueAtEpochMs,
+                    confirmLabel = stringResource(R.string.action_save_note),
+                    onSave = { updatedText, updatedDueAtEpochMs ->
+                        onUpdateAction(item.id, updatedText, updatedDueAtEpochMs)
+                        editingActionId = null
+                    },
+                    onCancel = { editingActionId = null },
+                    onDelete = {
+                        onDeleteAction(item.id)
+                        editingActionId = null
+                    },
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            } else {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1044,14 +1111,16 @@ fun NoteDetailScreen(
                         onCheckedChange = { done ->
                             onToggleActionDone?.invoke(item.id, done)
                         },
-                        modifier = Modifier.semantics {
-                            contentDescription = "Toggle action item: ${item.text}"
-                        }
+                        modifier = Modifier
+                            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                            .semantics {
+                                contentDescription = "Toggle action item: ${item.text}"
+                            }
                     )
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(start = 8.dp)
+                            .padding(start = 4.dp)
                     ) {
                         Text(
                             text = item.text,
@@ -1059,17 +1128,38 @@ fun NoteDetailScreen(
                             textDecoration = if (item.done) TextDecoration.LineThrough else null,
                             color = if (item.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                         )
-                        if (item.dueAtEpochMs != null && item.dueAtEpochMs > 0L) {
-                            val formattedDue = NoteCardFormatting.formatDueDate(item.dueAtEpochMs)
-                            if (formattedDue.isNotBlank()) {
-                                Text(
-                                    text = "Due: $formattedDue",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(top = 2.dp)
-                                )
+                        ActionDueDateBadge(
+                            dueAtEpochMs = item.dueAtEpochMs,
+                            onClick = {
+                                isAddingAction = false
+                                editingActionId = item.id
                             }
-                        }
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            isAddingAction = false
+                            editingActionId = item.id
+                        },
+                        modifier = Modifier
+                            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                            .semantics { contentDescription = "Edit action item: ${item.text}" }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = null
+                        )
+                    }
+                    IconButton(
+                        onClick = { onDeleteAction(item.id) },
+                        modifier = Modifier
+                            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                            .semantics { contentDescription = "Delete action item: ${item.text}" }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null
+                        )
                     }
                 }
             }
