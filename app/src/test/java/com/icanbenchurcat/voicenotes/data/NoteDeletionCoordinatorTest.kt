@@ -53,12 +53,22 @@ class NoteDeletionCoordinatorTest {
                 NoteTag(noteId = noteId, tagName = "work")
             )
         )
+        dao.upsertEmbedding(
+            NoteEmbedding(
+                noteId = noteId,
+                modelId = "test-embed-v1",
+                dimension = 2,
+                vectorBlob = EmbeddingCodec.encode(floatArrayOf(0.5f, 0.5f)),
+                updatedAtEpochMs = 1000L
+            )
+        )
 
         // Verify initial state
         assertNotNull(dao.byId(noteId))
         assertEquals(2, dao.actionsFor(noteId).size)
         assertEquals(listOf("confidential", "work"), dao.tagsFor(noteId))
         assertEquals(1, dao.search("secret").first().size)
+        assertNotNull(dao.embeddingForNote(noteId))
 
         val coordinator = NoteDeletionCoordinator(dao, audioDir)
         val result = coordinator.deleteNote(noteId)
@@ -69,6 +79,8 @@ class NoteDeletionCoordinatorTest {
         assertNull("Note row should be deleted", dao.byId(noteId))
         assertTrue("Linked actions should be deleted", dao.actionsFor(noteId).isEmpty())
         assertTrue("Linked tags should be deleted", dao.tagsFor(noteId).isEmpty())
+        assertNull("Linked embedding should be deleted", dao.embeddingForNote(noteId))
+        assertTrue("Embeddings for model should be empty", dao.embeddingsForModel("test-embed-v1").isEmpty())
         assertTrue("FTS search should return nothing", dao.search("secret").first().isEmpty())
         assertFalse("Physical audio file should be deleted", audioFile.exists())
     }
@@ -135,6 +147,25 @@ class NoteDeletionCoordinatorTest {
                 NoteTag(noteId = id2, tagName = "finance")
             )
         )
+        dao.upsertEmbedding(
+            NoteEmbedding(
+                noteId = id1,
+                modelId = "test-embed-v1",
+                dimension = 2,
+                vectorBlob = EmbeddingCodec.encode(floatArrayOf(1.0f, 0.0f)),
+                updatedAtEpochMs = 1000L
+            )
+        )
+        dao.upsertEmbedding(
+            NoteEmbedding(
+                noteId = id2,
+                modelId = "test-embed-v1",
+                dimension = 2,
+                vectorBlob = EmbeddingCodec.encode(floatArrayOf(0.0f, 1.0f)),
+                updatedAtEpochMs = 2000L
+            )
+        )
+        assertEquals(2, dao.embeddingsForModel("test-embed-v1").size)
 
         val coordinator = NoteDeletionCoordinator(dao, audioDir)
         coordinator.deleteAllNotes(deleteTags = true)
@@ -146,6 +177,9 @@ class NoteDeletionCoordinatorTest {
         assertTrue("Tags for note 1 should be gone", dao.tagsFor(id1).isEmpty())
         assertTrue("Tags for note 2 should be gone", dao.tagsFor(id2).isEmpty())
         assertTrue("All tags should be cleared", dao.allTags().isEmpty())
+        assertNull("Embedding for note 1 should be gone", dao.embeddingForNote(id1))
+        assertNull("Embedding for note 2 should be gone", dao.embeddingForNote(id2))
+        assertTrue("All embeddings should be cleared", dao.embeddingsForModel("test-embed-v1").isEmpty())
         assertTrue("Search should return 0 results", dao.search("milk").first().isEmpty())
 
         // Physical audio files should be removed

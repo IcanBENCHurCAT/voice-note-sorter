@@ -25,6 +25,15 @@ interface Transcriber {
     suspend fun transcribe(audioPath: String): Transcript
 }
 
+interface Proofreader {
+    suspend fun status(): CapabilityStatus
+    /** Cleans punctuation, capitalization, and grammar of [rawTranscript]
+     *  into a working transcript without altering facts, names, or numbers.
+     *  Throws [CapabilityBusyException] when the backing service asks us to
+     *  back off; the pipeline demotes instead of surfacing an error. */
+    suspend fun proofread(rawTranscript: String): String
+}
+
 interface Summarizer {
     suspend fun status(): CapabilityStatus
     /** Returns a title and a short summary for a transcript. */
@@ -62,12 +71,15 @@ data class BucketProfile(val buckets: List<BucketDef>)
 data class BucketDef(val kind: String, val name: String, val keywords: List<String>)
 
 interface Embedder {
+    /** Stable identifier for the active embedding model and vector space. */
+    val modelId: String
     suspend fun status(): CapabilityStatus
     /** Generates an embedding vector for the text. Returns null when unsupported on the active tier. */
     suspend fun embed(text: String): FloatArray?
 }
 
 class NoOpEmbedder : Embedder {
+    override val modelId: String = "noop"
     override suspend fun status(): CapabilityStatus = CapabilityStatus.UNAVAILABLE
     override suspend fun embed(text: String): FloatArray? = null
 }

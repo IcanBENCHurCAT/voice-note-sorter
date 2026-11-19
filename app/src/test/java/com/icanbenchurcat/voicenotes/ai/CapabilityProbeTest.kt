@@ -27,11 +27,13 @@ class FakeCapabilityChecker(
     var summarizer: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     var actions: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     var fingerprint: String = "app=1|aicore=none",
-    var probeDelayMs: Long = 0L
+    var probeDelayMs: Long = 0L,
+    var proofreader: CapabilityStatus? = null
 ) : CapabilityChecker {
     val transcriberCalls = AtomicInteger(0)
     val summarizerCalls = AtomicInteger(0)
     val actionsCalls = AtomicInteger(0)
+    val proofreaderCalls = AtomicInteger(0)
 
     override suspend fun checkTranscriber(): CapabilityStatus {
         if (probeDelayMs > 0) delay(probeDelayMs)
@@ -49,6 +51,12 @@ class FakeCapabilityChecker(
         if (probeDelayMs > 0) delay(probeDelayMs)
         actionsCalls.incrementAndGet()
         return actions
+    }
+
+    override suspend fun checkProofreader(): CapabilityStatus {
+        if (probeDelayMs > 0) delay(probeDelayMs)
+        proofreaderCalls.incrementAndGet()
+        return proofreader ?: summarizer
     }
 
     override fun versionFingerprint(): String = fingerprint
@@ -203,5 +211,34 @@ class CapabilityProbeTest {
         assertEquals(true, probe.downloadFoundationModel())
         assertEquals(CapabilityStatus.AVAILABLE, probe.summarizerStatus())
         assertEquals(Tier.FULL, probe.resolveDeviceTier())
+    }
+
+    @Test
+    fun proofreaderStatus_cachesTerminalStatesAndReprobesDownloadableAndBusy() = runTest {
+        val checker = FakeCapabilityChecker(
+            transcriber = CapabilityStatus.AVAILABLE,
+            summarizer = CapabilityStatus.AVAILABLE,
+            actions = CapabilityStatus.AVAILABLE,
+            proofreader = CapabilityStatus.DOWNLOADABLE,
+            fingerprint = "app=1|aicore=400"
+        )
+        val probe = CapabilityProbe(checker, dataStore)
+
+        assertEquals(CapabilityStatus.DOWNLOADABLE, probe.proofreaderStatus())
+        assertEquals(1, checker.proofreaderCalls.get())
+
+        // Transient DOWNLOADABLE re-probes on next call
+        checker.proofreader = CapabilityStatus.BUSY
+        assertEquals(CapabilityStatus.BUSY, probe.proofreaderStatus())
+        assertEquals(2, checker.proofreaderCalls.get())
+
+        // Transient BUSY re-probes on next call and transitions to terminal AVAILABLE
+        checker.proofreader = CapabilityStatus.AVAILABLE
+        assertEquals(CapabilityStatus.AVAILABLE, probe.proofreaderStatus())
+        assertEquals(3, checker.proofreaderCalls.get())
+
+        // Terminal AVAILABLE is cached without re-probing
+        assertEquals(CapabilityStatus.AVAILABLE, probe.proofreaderStatus())
+        assertEquals(3, checker.proofreaderCalls.get())
     }
 }

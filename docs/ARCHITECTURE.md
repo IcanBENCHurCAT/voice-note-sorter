@@ -29,20 +29,46 @@ When a recording is stopped, the service persists a new `Note` entity (status `R
 
 ## The sorting pipeline
 
-Five stages, each independently failable and independently tiered:
+Staged, independently failable, and independently tiered:
 
-1. **Transcribe** - speech to text (Nano Advanced / Basic / platform / none)
-2. **Title and summarise** - generative on Tier 3; extractive (first
-   sentence, key phrases) on Tier 2; timestamp title on Tier 1
-3. **Extract actions** - Prompt API structured output on Tier 3;
-   pattern heuristics ("remind me", "need to", dates) below that
-4. **Bucket and tag** - model classification on Tier 3; keyword rules
-   below; default bucket is Inbox, never a dead end
-5. **Embed** - semantic vectors on Tier 3 only; search falls back to FTS
+1. **Transcribe** - speech to text (Nano Advanced / Basic / platform / none).
+   Persists the raw `Note.transcript` immediately; once stored, `Note.transcript`
+   is immutable across downstream stages.
+2. **Proofread (transcript cleanup)** - runs between Stage 1 and Stage 2 behind
+   the `Proofreader` capability seam (`ADR 0006`): `NanoProofreader` on Tier 3
+   (v1 uses `GenAiPromptClient` / Prompt API path only, while adopting
+   `com.google.mlkit:genai-proofreading` awaits physical hardware verification
+   in `#147`) and `DeterministicTranscriptCleaner` on Tier 1/2 (whitespace
+   collapse, sentence-initial capitalization, and terminal punctuation without
+   altering words). Proofreader output is held as a separate `workingTranscript`
+   consumed by Stages 3-6, leaving `Note.transcript` untouched.
+3. **Title and summarise** - Tier 3 Prompt API (`GenerateTypedContentRequest`
+   structured output when supported, automatic plain-text + regex fallback
+   otherwise); extractive (`ExtractiveSummarizer`) on Tier 2; timestamp title on Tier 1
+   (consumes `workingTranscript`)
+4. **Extract actions** - Tier 3 Prompt API (`GenerateTypedContentRequest`
+   structured output when supported, automatic plain-text + regex fallback
+   otherwise) with `PlatformDateParser` due-date resolution; pattern
+   heuristics (`HeuristicActionExtractor`) below that (consumes
+   `workingTranscript`)
+5. **Bucket and tag** - Tier 3 Prompt API (`GenerateTypedContentRequest`
+   structured output against the active `BucketProfile` when supported,
+   automatic plain-text + regex fallback otherwise); keyword rules
+   (`HeuristicBucketer`) below; default bucket is Inbox, never a dead end
+   (consumes `workingTranscript`)
+6. **Embed** - persists semantic vectors (`NoteEmbedding`) behind `Embedder` when `AVAILABLE` (recording `embed:OK`, `embed:BUSY`, `embed:SKIPPED`, or `embed:FAILED`); Open Core ships `NoOpEmbedder` (`embed:SKIPPED`) and search falls back to FTS4 (consumes `workingTranscript`)
 
-A stage that cannot run (capability absent, AICore BUSY, quota) records
-its status on the note and the pipeline continues. A background retry pass
-upgrades notes when a higher capability becomes available.
+When Stages 2–4 run on Tier 3 (`NanoSummarizer`, `NanoActionExtractor`,
+`NanoBucketer`) with a shared `GenAiPromptClient`, `SortingWorker` opens a
+single `GenAiPromptSession`, warms up the model before Stage 2, attaches
+shared `SystemInstruction` (role framing) and transcript `PromptPrefix`
+(when supported by the model) so KV prefix state can be reused across all
+three stages, and clears implicit caches + closes the session in `finally`.
+A stage that cannot run (capability absent, AICore `BUSY`, quota, or
+unparseable output) records its status (`:BUSY` / `:FAILED`) or Tier 2
+demotion on the note and the pipeline continues (`CapabilityBusyException`
+marks the note `NEEDS_REVIEW`). See
+`docs/adr/0005-structured-output-and-prefix-caching.md`.
 
 ## Capability detection
 
@@ -59,6 +85,7 @@ actually got, not the tier the marketing page promised.
 - `ActionItem` - id, noteId, text, dueAt (nullable), done
 - `Tag`, `NoteTag` - free-form labels, many-to-many
 - `NoteFts` - FTS4 table over title, transcript, summary
+- `NoteEmbedding` - `noteId` (PK), `modelId`, `dimension`, `vectorBlob` (little-endian floats), `updatedAtEpochMs`; isolated by `modelId` and deleted atomically in note cascades (`NoteDeletionCoordinator`)
 
 Buckets are configuration, not code: white-label builds swap the default
 bucket set and rules without forking the pipeline.
@@ -67,9 +94,14 @@ bucket set and rules without forking the pipeline.
 
 Implemented today, in the `ai/` package:
 
-- `Transcriber`, `Summarizer`, `ActionExtractor`, `Bucketer`, `Embedder` - the
+- `Transcriber`, `Proofreader`, `Summarizer`, `ActionExtractor`, `Bucketer`, `Embedder` - the
   capability interfaces; alternative engines can be supplied by an outer
-  module at build time. Note that there is no vector store and no embeddings are persisted; search falls back to FTS.
+  module at build time. Open Core ships `NoOpEmbedder` (`modelId = "noop"`,
+  FTS4 fallback) behind `Embedder`, while Room persists `NoteEmbedding`
+  rows in `note_embeddings` and `DefaultSearchRepository` combines FTS4
+  matches with cosine similarity over rows matching the active
+  `Embedder.modelId` whenever an `Embedder` is `AVAILABLE` (see
+  `docs/adr/0007-local-embeddings-and-hybrid-search.md`).
 - `BucketProfileProvider` - supplies bucket sets and filing rules. This
   is the only downstream seam in use today.
 - `SearchRepository` - interface for performing searches.
@@ -86,6 +118,8 @@ extracting a dedicated `:extension-api` module.
 Anything behind these seams can be replaced by a downstream module
 without modifying core code. See `docs/adr/0001-open-core-closed-pro-split.md`
 for why the seam exists and the rules around it,
+`docs/adr/0006-task-specific-genai-and-proofreading.md` for the `Proofreader`
+seam and deferred `genai-proofreading` adoption (`#147`),
 `docs/adr/0009-open-pro-ai-model-boundary.md` for the AI model and network
 boundary between Open Core and Closed Pro, and `CONSTITUTION.md`
 for the governing principles.

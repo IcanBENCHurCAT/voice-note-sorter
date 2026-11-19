@@ -28,6 +28,8 @@
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
 
-# ML Kit GenAI Speech Recognition & Common
+# ML Kit GenAI Speech Recognition, Prompt & Schema (ServiceLoader + Gson reflection)
 -keep class com.google.mlkit.genai.** { *; }
+-keep @com.google.mlkit.genai.schema.annotations.Generable class * { *; }
+-keep class * implements com.google.mlkit.genai.schema.guided.GenerableProvider { *; }
 -dontwarn com.google.mlkit.genai.**

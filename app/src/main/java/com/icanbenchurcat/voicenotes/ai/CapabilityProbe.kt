@@ -25,6 +25,7 @@ interface CapabilityChecker {
     suspend fun checkTranscriber(): CapabilityStatus
     suspend fun checkSummarizer(): CapabilityStatus
     suspend fun checkActionExtractor(): CapabilityStatus
+    suspend fun checkProofreader(): CapabilityStatus = checkSummarizer()
     fun versionFingerprint(): String
     suspend fun downloadTranscriber(): Boolean = false
     suspend fun downloadFoundationModel(): Boolean = false
@@ -64,6 +65,8 @@ class DeviceCapabilityChecker(
     override suspend fun checkSummarizer(): CapabilityStatus = probeFoundationModelStatus()
 
     override suspend fun checkActionExtractor(): CapabilityStatus = probeFoundationModelStatus()
+
+    override suspend fun checkProofreader(): CapabilityStatus = probeFoundationModelStatus()
 
     override suspend fun downloadTranscriber(): Boolean = nanoTranscriber.download()
 
@@ -155,6 +158,9 @@ class CapabilityProbe(
     suspend fun actionExtractorStatus(): CapabilityStatus =
         getOrProbe(KEY_ACTIONS) { checker.checkActionExtractor() }
 
+    suspend fun proofreaderStatus(): CapabilityStatus =
+        getOrProbe(KEY_PROOFREADER) { checker.checkProofreader() }
+
     suspend fun downloadTranscriber(): Boolean {
         val ok = checker.downloadTranscriber()
         invalidate()
@@ -238,6 +244,7 @@ class CapabilityProbe(
         private const val KEY_TRANSCRIBER = "transcriber"
         private const val KEY_SUMMARIZER = "summarizer"
         private const val KEY_ACTIONS = "actions"
+        private const val KEY_PROOFREADER = "proofreader"
         private val PREF_FINGERPRINT = stringPreferencesKey("version_fingerprint")
 
         @Volatile

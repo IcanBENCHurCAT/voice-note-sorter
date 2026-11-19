@@ -20,7 +20,7 @@ class NoteDeletionCoordinator(
     /**
      * Deletes a single note by ID:
      * 1. Retrieves the note to identify its associated audio file path.
-     * 2. Deletes DB rows atomically (actions, note_tags, note, and synced FTS rows).
+     * 2. Deletes DB rows atomically (actions, note_tags, note_embeddings, note, and synced FTS rows).
      * 3. Deletes the physical audio file from disk if present.
      */
     suspend fun deleteNote(noteId: Long): Boolean {
@@ -33,7 +33,7 @@ class NoteDeletionCoordinator(
     /**
      * Deletes all notes:
      * 1. Collects all known audio file paths from the notes table.
-     * 2. Deletes all DB rows atomically (actions, note_tags, optional tags, notes, and FTS).
+     * 2. Deletes all DB rows atomically (actions, note_tags, optional tags, note_embeddings, notes, and FTS).
      * 3. Deletes all tracked audio files from disk.
      * 4. Deletes any remaining orphaned audio files (.m4a, .pcm, .wav) in the private audio directory.
      */
