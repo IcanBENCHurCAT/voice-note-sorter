@@ -63,4 +63,44 @@ class NoteEditPersistenceTest {
         val searchOldTitle = dao.search("UniqueOldTitleTerm").first()
         assertTrue(searchOldTitle.isEmpty())
     }
+
+    @Test
+    fun replaceTagsForNote_addsRemovesAndNormalizesTagsPerNote() = runBlocking {
+        val dao = InMemoryFakeNoteDao()
+
+        val noteId = dao.insert(
+            Note(
+                id = 1L,
+                createdAtEpochMs = 1000L,
+                audioPath = "/fake/1.m4a",
+                title = "Note 1",
+                transcript = "Content 1"
+            )
+        )
+        val otherNoteId = dao.insert(
+            Note(
+                id = 2L,
+                createdAtEpochMs = 2000L,
+                audioPath = "/fake/2.m4a",
+                title = "Note 2",
+                transcript = "Content 2"
+            )
+        )
+
+        dao.replaceTagsForNote(otherNoteId, listOf("keep-me"))
+        dao.replaceTagsForNote(noteId, listOf(" #work ", "groceries", "work", "  ", "#"))
+
+        assertEquals(listOf("groceries", "work"), dao.tagsFor(noteId))
+        assertEquals(listOf("keep-me"), dao.tagsFor(otherNoteId))
+
+        // Removing a tag and adding a new one replaces only the target note's tags
+        dao.replaceTagsForNote(noteId, listOf("work", "urgent"))
+        assertEquals(listOf("urgent", "work"), dao.tagsFor(noteId))
+        assertEquals(listOf("keep-me"), dao.tagsFor(otherNoteId))
+
+        // Clearing all tags on target note leaves other note untouched
+        dao.replaceTagsForNote(noteId, emptyList())
+        assertTrue(dao.tagsFor(noteId).isEmpty())
+        assertEquals(listOf("keep-me"), dao.tagsFor(otherNoteId))
+    }
 }
