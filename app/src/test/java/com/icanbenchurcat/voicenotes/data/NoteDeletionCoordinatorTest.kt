@@ -188,4 +188,82 @@ class NoteDeletionCoordinatorTest {
         assertFalse("orphan audio should be deleted", orphanFile.exists())
         assertTrue("non-audio file should be untouched", unrelatedFile.exists())
     }
+
+    @Test
+    fun deleteNote_removesImageNoteRow_actions_tags_andImageFile() = runBlocking {
+        val dao = InMemoryFakeNoteDao()
+        val audioDir = tempFolder.newFolder("audio_for_image")
+        val imagesDir = tempFolder.newFolder("images")
+        val imageFile = File(imagesDir, "whiteboard_1.jpg").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+        assertTrue(imageFile.exists())
+
+        val noteId = dao.insert(
+            Note(
+                id = 30L,
+                createdAtEpochMs = 3000L,
+                sourceType = NoteSourceType.IMAGE.name,
+                imagePath = imageFile.absolutePath,
+                title = "Confidential whiteboard",
+                transcript = "Launch checklist on board",
+                summary = "Confidential launch checklist",
+                bucketKind = "TASK",
+                tierUsed = "CORE"
+            )
+        )
+        dao.insertActions(listOf(ActionItem(noteId = noteId, text = "Erase whiteboard")))
+        dao.insertTags(listOf(Tag("whiteboard")))
+        dao.insertNoteTags(listOf(NoteTag(noteId = noteId, tagName = "whiteboard")))
+
+        val coordinator = NoteDeletionCoordinator(dao, audioDir, imagesDir)
+        val result = coordinator.deleteNote(noteId)
+
+        assertTrue("Expected deleteNote to return true", result)
+        assertNull("Image note row should be deleted", dao.byId(noteId))
+        assertTrue("Linked actions should be deleted", dao.actionsFor(noteId).isEmpty())
+        assertTrue("Linked tags should be deleted", dao.tagsFor(noteId).isEmpty())
+        assertTrue("FTS search should return nothing", dao.search("checklist").first().isEmpty())
+        assertFalse("Physical image file in filesDir/images/ should be deleted", imageFile.exists())
+    }
+
+    @Test
+    fun deleteAllNotes_removesTrackedAndOrphanedImageFilesInImagesDir() = runBlocking {
+        val dao = InMemoryFakeNoteDao()
+        val filesDir = tempFolder.newFolder("app_files")
+        val imagesDir = File(filesDir, "images").apply { mkdirs() }
+
+        val trackedJpg = File(imagesDir, "note_1.jpg").apply { writeBytes(byteArrayOf(1, 2)) }
+        val trackedPng = File(imagesDir, "note_2.png").apply { writeBytes(byteArrayOf(3, 4)) }
+        val orphanWebp = File(imagesDir, "orphan.webp").apply { writeBytes(byteArrayOf(5, 6)) }
+        val unrelatedDoc = File(imagesDir, "keep.txt").apply { writeText("keep") }
+
+        dao.insert(
+            Note(
+                id = 40L,
+                createdAtEpochMs = 4000L,
+                sourceType = NoteSourceType.IMAGE.name,
+                imagePath = trackedJpg.absolutePath,
+                title = "Page 1",
+                transcript = "First page"
+            )
+        )
+        dao.insert(
+            Note(
+                id = 41L,
+                createdAtEpochMs = 4100L,
+                sourceType = NoteSourceType.IMAGE.name,
+                imagePath = trackedPng.absolutePath,
+                title = "Page 2",
+                transcript = "Second page"
+            )
+        )
+
+        val coordinator = NoteDeletionCoordinator(dao, filesDir, imagesDir)
+        coordinator.deleteAllNotes(deleteTags = true)
+
+        assertTrue(dao.observeAll().first().isEmpty())
+        assertFalse("Tracked jpg should be deleted", trackedJpg.exists())
+        assertFalse("Tracked png should be deleted", trackedPng.exists())
+        assertFalse("Orphaned webp should be deleted", orphanWebp.exists())
+        assertTrue("Unrelated non-image file should remain", unrelatedDoc.exists())
+    }
 }

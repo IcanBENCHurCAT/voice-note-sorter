@@ -28,9 +28,11 @@ class FakeCapabilityChecker(
     var actions: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     var fingerprint: String = "app=1|aicore=none",
     var probeDelayMs: Long = 0L,
-    var proofreader: CapabilityStatus? = null
+    var proofreader: CapabilityStatus? = null,
+    var imageTranscriber: CapabilityStatus = CapabilityStatus.AVAILABLE
 ) : CapabilityChecker {
     val transcriberCalls = AtomicInteger(0)
+    val imageTranscriberCalls = AtomicInteger(0)
     val summarizerCalls = AtomicInteger(0)
     val actionsCalls = AtomicInteger(0)
     val proofreaderCalls = AtomicInteger(0)
@@ -39,6 +41,12 @@ class FakeCapabilityChecker(
         if (probeDelayMs > 0) delay(probeDelayMs)
         transcriberCalls.incrementAndGet()
         return transcriber
+    }
+
+    override suspend fun checkImageTranscriber(): CapabilityStatus {
+        if (probeDelayMs > 0) delay(probeDelayMs)
+        imageTranscriberCalls.incrementAndGet()
+        return imageTranscriber
     }
 
     override suspend fun checkSummarizer(): CapabilityStatus {
@@ -240,5 +248,23 @@ class CapabilityProbeTest {
         // Terminal AVAILABLE is cached without re-probing
         assertEquals(CapabilityStatus.AVAILABLE, probe.proofreaderStatus())
         assertEquals(3, checker.proofreaderCalls.get())
+    }
+
+    @Test
+    fun imageTranscriberStatus_cachesTerminalStatesAndInvalidatesOnVersionChange() = runTest {
+        val checker = FakeCapabilityChecker(
+            imageTranscriber = CapabilityStatus.AVAILABLE,
+            fingerprint = "app=1|aicore=400"
+        )
+        val probe = CapabilityProbe(checker, dataStore)
+
+        assertEquals(CapabilityStatus.AVAILABLE, probe.imageTranscriberStatus())
+        assertEquals(CapabilityStatus.AVAILABLE, probe.imageTranscriberStatus())
+        assertEquals(1, checker.imageTranscriberCalls.get())
+
+        checker.fingerprint = "app=1|aicore=401"
+        checker.imageTranscriber = CapabilityStatus.UNAVAILABLE
+        assertEquals(CapabilityStatus.UNAVAILABLE, probe.imageTranscriberStatus())
+        assertEquals(2, checker.imageTranscriberCalls.get())
     }
 }

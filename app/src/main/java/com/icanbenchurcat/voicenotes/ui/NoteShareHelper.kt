@@ -56,16 +56,43 @@ object NoteShareHelper {
         context: Context,
         note: Note,
         chooserTitle: String = "Share audio"
+    ): Intent? = createShareFileIntent(
+        context = context,
+        path = note.audioPath,
+        mimeType = "audio/*",
+        chooserTitle = chooserTitle
+    )
+
+    /**
+     * Creates an Intent to share note image via ACTION_SEND with a scoped FileProvider URI.
+     * Returns null if image file does not exist.
+     */
+    fun createShareImageIntent(
+        context: Context,
+        note: Note,
+        chooserTitle: String = "Share image"
+    ): Intent? = createShareFileIntent(
+        context = context,
+        path = note.imagePath,
+        mimeType = "image/*",
+        chooserTitle = chooserTitle
+    )
+
+    private fun createShareFileIntent(
+        context: Context,
+        path: String,
+        mimeType: String,
+        chooserTitle: String
     ): Intent? {
-        if (note.audioPath.isBlank()) return null
-        val audioFile = File(note.audioPath)
-        if (!audioFile.exists() || !audioFile.isFile) return null
+        if (path.isBlank()) return null
+        val file = File(path)
+        if (!file.exists() || !file.isFile) return null
 
         val authority = "${context.packageName}.fileprovider"
-        val contentUri: Uri = FileProvider.getUriForFile(context, authority, audioFile)
+        val contentUri: Uri = FileProvider.getUriForFile(context, authority, file)
 
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "audio/*"
+            type = mimeType
             putExtra(Intent.EXTRA_STREAM, contentUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

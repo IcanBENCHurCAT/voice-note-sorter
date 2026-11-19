@@ -3,6 +3,7 @@
 package com.icanbenchurcat.voicenotes.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
@@ -35,27 +37,39 @@ import androidx.compose.material3.IconButton
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -70,6 +84,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
@@ -78,47 +93,44 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.icanbenchurcat.voicenotes.R
-import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
-import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.ui.graphics.Color
+import com.icanbenchurcat.voicenotes.R
+import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
+import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
+import com.icanbenchurcat.voicenotes.ai.Tier
+import com.icanbenchurcat.voicenotes.audio.AudioPlaybackState
+import com.icanbenchurcat.voicenotes.audio.PlaybackStatus
+import com.icanbenchurcat.voicenotes.audio.rememberAudioPlayerState
+import com.icanbenchurcat.voicenotes.capture.ImageFileManager
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.NoteSourceType
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import com.icanbenchurcat.voicenotes.audio.AudioPlaybackState
-import com.icanbenchurcat.voicenotes.audio.PlaybackStatus
-import com.icanbenchurcat.voicenotes.audio.rememberAudioPlayerState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Top app bar for root tabs (Notes / Tasks), separating structural actions such as
@@ -599,6 +611,14 @@ fun NotesListScreen(
                                 modifier = Modifier.semantics { contentDescription = metaDesc }
                             )
 
+                            if (note.sourceType == NoteSourceType.IMAGE.name) {
+                                Text(
+                                    text = stringResource(R.string.badge_image_note),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+
                             if (note.status == NoteStatus.NEEDS_REVIEW.name) {
                                 val (badgeContainerColor, badgeLabelColor) = needsReviewBadgeColorTokens(MaterialTheme.colorScheme)
                                 SuggestionChip(
@@ -707,7 +727,9 @@ fun NoteDetailScreen(
     onShareAudio: () -> Unit = {},
     hasAudioFile: Boolean = false,
     onManageBuckets: (() -> Unit)? = null,
-    developerActions: @Composable RowScope.() -> Unit = {}
+    developerActions: @Composable RowScope.() -> Unit = {},
+    onShareImage: () -> Unit = {},
+    hasImageFile: Boolean = false
 ) {
     var isEditing by rememberSaveable { mutableStateOf(false) }
     var editTitle by rememberSaveable(note.id, isEditing) { mutableStateOf(note.title) }
@@ -721,6 +743,7 @@ fun NoteDetailScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showShareMenu by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    val hasMediaFile = hasAudioFile || hasImageFile
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
@@ -904,7 +927,7 @@ fun NoteDetailScreen(
                         Box {
                             IconButton(
                                 onClick = {
-                                    if (hasAudioFile) {
+                                    if (hasMediaFile) {
                                         showShareMenu = true
                                     } else {
                                         onShareText()
@@ -919,7 +942,7 @@ fun NoteDetailScreen(
                                     contentDescription = null
                                 )
                             }
-                            if (hasAudioFile) {
+                            if (hasMediaFile) {
                                 DropdownMenu(
                                     expanded = showShareMenu,
                                     onDismissRequest = { showShareMenu = false }
@@ -932,14 +955,26 @@ fun NoteDetailScreen(
                                         },
                                         modifier = Modifier.semantics { contentDescription = "Share note text" }
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.action_share_audio)) },
-                                        onClick = {
-                                            showShareMenu = false
-                                            onShareAudio()
-                                        },
-                                        modifier = Modifier.semantics { contentDescription = "Share note audio" }
-                                    )
+                                    if (hasAudioFile) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.action_share_audio)) },
+                                            onClick = {
+                                                showShareMenu = false
+                                                onShareAudio()
+                                            },
+                                            modifier = Modifier.semantics { contentDescription = "Share note audio" }
+                                        )
+                                    }
+                                    if (hasImageFile) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.action_share_image)) },
+                                            onClick = {
+                                                showShareMenu = false
+                                                onShareImage()
+                                            },
+                                            modifier = Modifier.semantics { contentDescription = "Share note image" }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1191,6 +1226,13 @@ fun NoteDetailScreen(
                 }
             }
         }
+        if (note.sourceType == NoteSourceType.IMAGE.name || note.imagePath.isNotBlank() || hasImageFile) {
+            ImageAttachmentCard(
+                imagePath = note.imagePath,
+                hasImageFile = hasImageFile,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        }
         if (!isEditing) {
             if (note.transcript.isNotBlank()) {
                 Text(
@@ -1201,10 +1243,13 @@ fun NoteDetailScreen(
                         .testTag("note_detail_transcript")
                 )
             } else {
-                val emptyCopy = if (hasAudioFile) {
-                    "No transcript yet. Playback is available; this note was filed by hand (Tier 1)."
-                } else {
-                    "No transcript yet. This note was filed by hand (Tier 1)."
+                val emptyCopy = when {
+                    note.sourceType == NoteSourceType.IMAGE.name && hasImageFile ->
+                        stringResource(R.string.image_no_transcript_with_file)
+                    hasAudioFile ->
+                        "No transcript yet. Playback is available; this note was filed by hand (Tier 1)."
+                    else ->
+                        "No transcript yet. This note was filed by hand (Tier 1)."
                 }
                 Text(
                     text = emptyCopy,
@@ -1213,7 +1258,7 @@ fun NoteDetailScreen(
                         .padding(top = 16.dp)
                         .testTag("note_detail_transcript_empty")
                 )
-                if (transcriberStatus == CapabilityStatus.DOWNLOADABLE) {
+                if (note.sourceType != NoteSourceType.IMAGE.name && transcriberStatus == CapabilityStatus.DOWNLOADABLE) {
                     Text(
                         text = "On-device speech model is downloadable; note can be upgraded once downloaded.",
                         style = MaterialTheme.typography.labelSmall,
@@ -1352,7 +1397,7 @@ fun NoteDetailScreen(
                 }
             }
         }
-        if (hasAudioFile || note.audioPath.isNotBlank()) {
+        if (note.sourceType != NoteSourceType.IMAGE.name && (hasAudioFile || note.audioPath.isNotBlank())) {
             AudioPlaybackControl(
                 audioPlaybackState = audioPlaybackState,
                 modifier = Modifier.padding(top = 16.dp)
@@ -1498,6 +1543,74 @@ fun AudioPlaybackControl(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun ImageAttachmentCard(
+    imagePath: String,
+    hasImageFile: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val imageBitmap by produceState<ImageBitmap?>(initialValue = null, imagePath, hasImageFile) {
+        value = if (imagePath.isNotBlank()) {
+            withContext(Dispatchers.IO) {
+                ImageFileManager.decodeScaledBitmap(imagePath, maxDimensionPx = 1600)?.asImageBitmap()
+            }
+        } else {
+            null
+        }
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.image_attachment_title),
+                style = MaterialTheme.typography.titleSmall
+            )
+
+            val loaded = imageBitmap
+            if (loaded != null) {
+                val imageDesc = stringResource(R.string.cd_attached_image)
+                Image(
+                    bitmap = loaded,
+                    contentDescription = imageDesc,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
+                        .padding(top = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                )
+                val fileName = java.io.File(imagePath).name
+                Text(
+                    text = "${loaded.width} × ${loaded.height} px • $fileName",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            } else if (!hasImageFile) {
+                Text(
+                    text = stringResource(R.string.image_missing_error),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            } else {
+                Text(
+                    text = java.io.File(imagePath).name,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
         }
     }

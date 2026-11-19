@@ -11,27 +11,31 @@ Domain: SortingPipeline (staged, WorkManager-backed)
   |
 AI capability interfaces (ai/ package)
   |- Nano implementations (ML Kit GenAI / AICore)
-  |- Platform implementations (SpeechRecognizer, heuristics)
+  |- Platform & bundled implementations (SpeechRecognizer, bundled ML Kit OCR, heuristics)
   |- No-op / manual implementations (Tier 1)
-Data: Room (notes, buckets, actions, tags, FTS) + files (audio)
+Data: Room (notes, buckets, actions, tags, FTS) + files (audio, images)
 Platform: Glance widgets, Quick Settings tile, Live Updates
 ```
 
 ## Capture stack
 
-Entry points: FAB one-tap on the main screen, a Quick Settings tile (via `EXTRA_START_RECORDING` intent), and notification actions (pause, resume, stop).
+**Audio capture:** Entry points are the primary FAB one-tap on the main screen, a Quick Settings tile (via `EXTRA_START_RECORDING` intent), and notification actions (pause, resume, stop).
 
-All entry points route through `StartCaptureUseCase`, which launches a foreground `RecordingService`. This service holds a microphone foreground service type, manages a `MediaRecorder` instance (MIC audio source, AAC/MPEG-4 format), and enforces a 4-minute warning and 5-minute hard stop limit.
+All audio entry points route through `StartCaptureUseCase`, which launches a foreground `RecordingService`. This service holds a microphone foreground service type, manages a `MediaRecorder` instance (MIC audio source, AAC/MPEG-4 format), and enforces a 4-minute warning and 5-minute hard stop limit.
 
 Audio files are written to an app-private directory (`filesDir/recordings/`) using `AudioFileManager`. They are stored as timestamped `.m4a` files. If a recording is cancelled, the partial file is deleted.
 
-When a recording is stopped, the service persists a new `Note` entity (status `RECORDED`, bucket `INBOX`, tier `CORE`) and enqueues a `SortingWorker` via WorkManager to trigger the sorting pipeline.
+When a recording is stopped, the service persists a new `Note` entity (`sourceType = AUDIO`, status `RECORDED`, bucket `INBOX`, tier `CORE`) and enqueues a `SortingWorker` via WorkManager to trigger the sorting pipeline.
+
+**Image capture (ADR 0008):** A secondary scan/photo capture action alongside the Record FAB launches either Android's system Photo Picker (`PickVisualMedia`) or system camera delegation (`TakePicture`) via an app-private `FileProvider` URI—requiring zero new manifest permissions (`CAMERA`, `READ_MEDIA_IMAGES`, and `INTERNET` remain absent). Captured or picked images are stored in `filesDir/images/` using `ImageFileManager`, persisted as a `Note` (`sourceType = IMAGE`, `imagePath`), and enqueued to `SortingWorker`.
 
 ## The sorting pipeline
 
 Staged, independently failable, and independently tiered:
 
-1. **Transcribe** - speech to text (Nano Advanced / Basic / platform / none).
+1. **Transcribe** - branches on `Note.sourceType`:
+   - `AUDIO`: speech to text (`NanoTranscriber` → `PlatformTranscriber` → `NullTranscriber`).
+   - `IMAGE`: handwritten/printed text extraction (`NanoImageTranscriber` via `ImagePart(Bitmap)` → `MlKitOcrImageTranscriber` using bundled `com.google.mlkit:text-recognition` → `NullImageTranscriber`). On Tier 1 or blank OCR output, the attached image is retained and the note is marked `NEEDS_REVIEW` for manual entry.
    Persists the raw `Note.transcript` immediately; once stored, `Note.transcript`
    is immutable across downstream stages.
 2. **Proofread (transcript cleanup)** - runs between Stage 1 and Stage 2 behind
@@ -79,8 +83,9 @@ actually got, not the tier the marketing page promised.
 
 ## Data model (Room)
 
-- `Note` - id, createdAt, audioPath, transcript, title, summary,
-  bucketKind, tierUsed, stageStatus, status (RECORDED / TRANSCRIBED / SORTED / NEEDS_REVIEW)
+- `Note` - id, createdAt, sourceType (AUDIO / IMAGE), audioPath, imagePath,
+  transcript, title, summary, bucketKind, tierUsed, stageStatus,
+  status (RECORDED / TRANSCRIBED / SORTED / NEEDS_REVIEW)
 - `Bucket` - id, name, kind (IDEA / TASK / NOTE / LIST / INBOX / custom)
 - `ActionItem` - id, noteId, text, dueAt (nullable), done
 - `Tag`, `NoteTag` - free-form labels, many-to-many
@@ -94,7 +99,7 @@ bucket set and rules without forking the pipeline.
 
 Implemented today, in the `ai/` package:
 
-- `Transcriber`, `Proofreader`, `Summarizer`, `ActionExtractor`, `Bucketer`, `Embedder` - the
+- `Transcriber`, `ImageTranscriber`, `Proofreader`, `Summarizer`, `ActionExtractor`, `Bucketer`, `Embedder` - the
   capability interfaces; alternative engines can be supplied by an outer
   module at build time. Open Core ships `NoOpEmbedder` (`modelId = "noop"`,
   FTS4 fallback) behind `Embedder`, while Room persists `NoteEmbedding`
@@ -120,6 +125,7 @@ without modifying core code. See `docs/adr/0001-open-core-closed-pro-split.md`
 for why the seam exists and the rules around it,
 `docs/adr/0006-task-specific-genai-and-proofreading.md` for the `Proofreader`
 seam and deferred `genai-proofreading` adoption (`#147`),
+`docs/adr/0008-image-to-note-ingestion.md` for the zero-permission image ingestion pipeline,
 `docs/adr/0009-open-pro-ai-model-boundary.md` for the AI model and network
 boundary between Open Core and Closed Pro, and `CONSTITUTION.md`
 for the governing principles.

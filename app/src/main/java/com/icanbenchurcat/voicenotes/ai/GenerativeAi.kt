@@ -2,12 +2,14 @@
 
 package com.icanbenchurcat.voicenotes.ai
 
+import android.content.Context
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.prompt.GenerateContentRequest
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
+import com.google.mlkit.genai.prompt.ImagePart
 import com.google.mlkit.genai.prompt.PromptPrefix
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
@@ -15,7 +17,11 @@ import com.google.mlkit.genai.prompt.generateContentRequest
 import com.google.mlkit.genai.prompt.generateTypedContentRequest
 import com.google.mlkit.genai.schema.annotations.Generable
 import com.google.mlkit.genai.schema.annotations.Guide
+import com.icanbenchurcat.voicenotes.capture.ImageFileManager
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.Clock
 import java.util.Locale
 import kotlin.reflect.KClass
@@ -56,9 +62,10 @@ interface GenAiPromptSession : AutoCloseable {
 
 /**
  * Seam over the ML Kit GenAI Prompt API so [NanoSummarizer],
- * [NanoActionExtractor], [NanoBucketer], and [NanoProofreader] can be deterministically
- * unit-tested across AVAILABLE, DOWNLOADABLE, UNAVAILABLE, and BUSY
- * outcomes without requiring AICore hardware.
+ * [NanoActionExtractor], [NanoBucketer], [NanoProofreader], and
+ * [NanoImageTranscriber] can be deterministically unit-tested across
+ * AVAILABLE, DOWNLOADABLE, UNAVAILABLE, and BUSY outcomes without
+ * requiring AICore hardware.
  */
 interface GenAiPromptClient {
     suspend fun checkStatus(): CapabilityStatus
@@ -66,6 +73,7 @@ interface GenAiPromptClient {
     suspend fun generateText(request: PromptRequest): String = generateText(request.prompt)
     suspend fun generateText(prompt: String, maxOutputTokens: Int): String =
         generateText(PromptRequest(prompt = prompt, maxOutputTokens = maxOutputTokens))
+    suspend fun generateTextFromImage(imagePath: String, prompt: String): String = ""
     suspend fun <T : Any> generateTyped(request: PromptRequest, outputClass: KClass<T>): T? = null
     suspend fun isStructuredOutputAvailable(): Boolean = false
     suspend fun isSystemPromptAvailable(): Boolean = false
@@ -183,6 +191,23 @@ object MlKitGenAiPromptClient : GenAiPromptClient {
     override suspend fun generateText(request: PromptRequest): String =
         withOneShotSession { it.generateText(request) }
 
+    override suspend fun generateTextFromImage(imagePath: String, prompt: String): String {
+        val file = File(imagePath)
+        require(file.exists() && file.isFile && file.length() > 0L) {
+            "Image file does not exist or is empty: $imagePath"
+        }
+        val bitmap = withContext(Dispatchers.IO) {
+            ImageFileManager.decodeScaledBitmap(imagePath, maxDimensionPx = 2048)
+        } ?: return ""
+        return try {
+            withOneShotSession { session ->
+                (session as? MlKitGenAiPromptSession)?.generateTextFromBitmap(bitmap, prompt) ?: ""
+            }
+        } finally {
+            runCatching { bitmap.recycle() }
+        }
+    }
+
     private suspend inline fun <R> withOneShotSession(block: (GenAiPromptSession) -> R): R {
         val session = openSession()
         return try {
@@ -298,6 +323,17 @@ private class MlKitGenAiPromptSession : GenAiPromptSession {
             // Missing ServiceLoader provider or unsupported schema falls back to text + regex.
             null
         }
+    }
+
+    suspend fun generateTextFromBitmap(bitmap: android.graphics.Bitmap, prompt: String): String {
+        val activeModel = mapInferenceErrors { getOrCreateModel() }
+        val contentRequest = generateContentRequest(ImagePart(bitmap), TextPart(prompt)) {
+            temperature = 0.2f
+            candidateCount = 1
+            maxOutputTokens = 512
+        }
+        val response = mapInferenceErrors { activeModel.generateContent(contentRequest) }
+        return response.candidates.firstOrNull()?.text.orEmpty().trim()
     }
 
     override suspend fun generateText(request: PromptRequest): String {
@@ -1128,6 +1164,65 @@ class NanoBucketer(
                 .filter { it.isNotEmpty() && it !in emptyTagTokens }
                 .distinct()
                 .take(MAX_TAGS)
+    }
+}
+
+/**
+ * Tier 3 multimodal image transcriber backed by Gemini Nano via
+ * [GenAiPromptClient] (`ImagePart(Bitmap)` + `TextPart`), falling back to
+ * [MlKitOcrImageTranscriber] when unavailable, downloadable, or blank.
+ * Propagates [CapabilityBusyException] on BUSY/quota so the pipeline
+ * records the demotion explicitly.
+ */
+class NanoImageTranscriber(
+    private val promptClient: GenAiPromptClient = MlKitGenAiPromptClient,
+    private val fallback: ImageTranscriber = NullImageTranscriber
+) : ImageTranscriber {
+
+    constructor(context: Context) : this(
+        promptClient = MlKitGenAiPromptClient,
+        fallback = MlKitOcrImageTranscriber(context.applicationContext)
+    )
+
+    override suspend fun status(): CapabilityStatus = promptClient.checkStatus()
+
+    override suspend fun transcribeImage(imagePath: String): Transcript {
+        require(imagePath.isNotBlank()) { "Image path must not be blank" }
+
+        when (promptClient.checkStatus()) {
+            CapabilityStatus.AVAILABLE -> Unit
+            CapabilityStatus.BUSY -> throw CapabilityBusyException()
+            CapabilityStatus.DOWNLOADABLE, CapabilityStatus.UNAVAILABLE -> {
+                CapabilityProbe.logDemotion("image_transcriber", Tier.FULL, Tier.CORE)
+                return fallback.transcribeImage(imagePath)
+            }
+        }
+
+        val raw = try {
+            promptClient.generateTextFromImage(imagePath, buildPrompt())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: CapabilityBusyException) {
+            throw e
+        } catch (_: GenAiException) {
+            CapabilityProbe.logDemotion("image_transcriber", Tier.FULL, Tier.CORE)
+            return fallback.transcribeImage(imagePath)
+        }
+
+        val cleaned = stripCodeFences(raw).trim()
+        if (cleaned.isBlank()) {
+            CapabilityProbe.logDemotion("image_transcriber", Tier.FULL, Tier.CORE)
+            return fallback.transcribeImage(imagePath)
+        }
+        return Transcript(cleaned, Tier.FULL)
+    }
+
+    companion object {
+        internal fun buildPrompt(): String = buildString {
+            appendLine("Transcribe all handwritten and printed text visible in this image verbatim.")
+            appendLine("Preserve line breaks and list items. Do not add commentary or markdown code fences.")
+            append("If there is no readable text in the image, respond with an empty string.")
+        }
     }
 }
 

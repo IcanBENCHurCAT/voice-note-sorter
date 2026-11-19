@@ -19,12 +19,16 @@ import com.icanbenchurcat.voicenotes.ai.GenAiPromptClient
 import com.icanbenchurcat.voicenotes.ai.GenAiPromptSession
 import com.icanbenchurcat.voicenotes.ai.HeuristicActionExtractor
 import com.icanbenchurcat.voicenotes.ai.HeuristicBucketer
+import com.icanbenchurcat.voicenotes.ai.ImageTranscriber
+import com.icanbenchurcat.voicenotes.ai.MlKitOcrImageTranscriber
 import com.icanbenchurcat.voicenotes.ai.NanoActionExtractor
 import com.icanbenchurcat.voicenotes.ai.NanoBucketer
+import com.icanbenchurcat.voicenotes.ai.NanoImageTranscriber
 import com.icanbenchurcat.voicenotes.ai.NanoProofreader
 import com.icanbenchurcat.voicenotes.ai.NanoSummarizer
 import com.icanbenchurcat.voicenotes.ai.NanoTranscriber
 import com.icanbenchurcat.voicenotes.ai.NoOpEmbedder
+import com.icanbenchurcat.voicenotes.ai.NullImageTranscriber
 import com.icanbenchurcat.voicenotes.ai.NullTranscriber
 import com.icanbenchurcat.voicenotes.ai.PlatformTranscriber
 import com.icanbenchurcat.voicenotes.ai.Proofreader
@@ -32,6 +36,7 @@ import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.ai.TitleSummary
 import com.icanbenchurcat.voicenotes.ai.Transcriber
+import com.icanbenchurcat.voicenotes.ai.Transcript
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Bucket
@@ -39,6 +44,7 @@ import com.icanbenchurcat.voicenotes.data.EmbeddingCodec
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
 import com.icanbenchurcat.voicenotes.data.NoteEmbedding
+import com.icanbenchurcat.voicenotes.data.NoteSourceType
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
@@ -57,7 +63,7 @@ data class PipelineOutcome(
 )
 
 /**
- * The sorting pipeline as a deferred WorkManager job: five stages, each
+ * The sorting pipeline as a deferred WorkManager job: six stages, each
  * independently failable and independently persisted, each recording its
  * outcome on the note. A stage that hits a busy/quota capability demotes
  * to the next rung of the capability ladder instead of failing the note.
@@ -78,7 +84,10 @@ class SortingWorker(
     private val fallbackBucketer: Bucketer = HeuristicBucketer(),
     private val proofreader: Proofreader? = null,
     private val fallbackProofreader: Proofreader = DeterministicTranscriptCleaner(),
-    private val embedder: Embedder = NoOpEmbedder()
+    private val embedder: Embedder = NoOpEmbedder(),
+    private val imageTranscriber: ImageTranscriber = NanoImageTranscriber(context),
+    private val fallbackImageTranscriber: ImageTranscriber = MlKitOcrImageTranscriber(context),
+    private val nullImageTranscriber: ImageTranscriber = NullImageTranscriber
 ) : CoroutineWorker(context, params) {
 
     // Primary constructor for WorkManager
@@ -97,7 +106,10 @@ class SortingWorker(
         fallbackBucketer = HeuristicBucketer(),
         proofreader = proofreaderOverride ?: NanoProofreader(),
         fallbackProofreader = DeterministicTranscriptCleaner(),
-        embedder = embedderOverride ?: NoOpEmbedder()
+        embedder = embedderOverride ?: NoOpEmbedder(),
+        imageTranscriber = imageTranscriberOverride ?: NanoImageTranscriber(context),
+        fallbackImageTranscriber = imageTranscriberOverride ?: MlKitOcrImageTranscriber(context),
+        nullImageTranscriber = NullImageTranscriber
     )
 
     override suspend fun doWork(): Result {
@@ -121,7 +133,10 @@ class SortingWorker(
             dao = dao,
             proofreader = proofreader,
             fallbackProofreader = fallbackProofreader,
-            embedder = embedder
+            embedder = embedder,
+            imageTranscriber = imageTranscriber,
+            fallbackImageTranscriber = fallbackImageTranscriber,
+            nullImageTranscriber = nullImageTranscriber
         )
         return Result.success()
     }
@@ -141,6 +156,9 @@ class SortingWorker(
         @Volatile
         var embedderOverride: Embedder? = null
 
+        @Volatile
+        var imageTranscriberOverride: ImageTranscriber? = null
+
         suspend fun executePipeline(
             note: Note,
             capabilityProbe: CapabilityProbe,
@@ -157,7 +175,10 @@ class SortingWorker(
             promptSession: GenAiPromptSession? = null,
             proofreader: Proofreader? = null,
             fallbackProofreader: Proofreader = DeterministicTranscriptCleaner(),
-            embedder: Embedder = NoOpEmbedder()
+            embedder: Embedder = NoOpEmbedder(),
+            imageTranscriber: ImageTranscriber = NullImageTranscriber,
+            fallbackImageTranscriber: ImageTranscriber = NullImageTranscriber,
+            nullImageTranscriber: ImageTranscriber = NullImageTranscriber
         ): PipelineOutcome {
             val stages = mutableListOf<String>()
             var currentNote = note
@@ -168,64 +189,44 @@ class SortingWorker(
                 profile.buckets.map { Bucket(kind = it.kind, name = it.name) }
             )
 
-            // Stage 1: transcribe — consult CapabilityProbe and persist immediately
-            val probedTranscriberStatus = capabilityProbe.transcriberStatus()
-            val transcript = when (probedTranscriberStatus) {
-                CapabilityStatus.UNAVAILABLE -> {
-                    CapabilityProbe.logDemotion("transcriber", Tier.FULL, Tier.MINIMAL)
-                    val t = nullTranscriber.transcribe(currentNote.audioPath)
-                    stages += "transcribe_null:OK"
-                    t
-                }
-                CapabilityStatus.DOWNLOADABLE, CapabilityStatus.BUSY -> {
-                    CapabilityProbe.logDemotion("transcriber", Tier.FULL, Tier.CORE)
-                    transcribeWithPlatformOrNull(
-                        audioPath = currentNote.audioPath,
-                        platformTranscriber = platformTranscriber,
-                        nullTranscriber = nullTranscriber,
-                        stages = stages
-                    )
-                }
-                CapabilityStatus.AVAILABLE -> {
-                    if (transcriber.status() == CapabilityStatus.AVAILABLE) {
-                        try {
-                            val t = transcriber.transcribe(currentNote.audioPath)
-                            stages += "transcribe:OK"
-                            t
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: CapabilityBusyException) {
-                            stages += "transcribe:BUSY"
-                            CapabilityProbe.logDemotion("transcriber", Tier.FULL, Tier.CORE)
-                            transcribeWithPlatformOrNull(
-                                audioPath = currentNote.audioPath,
-                                platformTranscriber = platformTranscriber,
-                                nullTranscriber = nullTranscriber,
-                                stages = stages
-                            )
-                        } catch (e: Exception) {
-                            stages += "transcribe:FAILED"
-                            null
-                        }
-                    } else {
-                        CapabilityProbe.logDemotion("transcriber", Tier.FULL, Tier.CORE)
-                        transcribeWithPlatformOrNull(
-                            audioPath = currentNote.audioPath,
-                            platformTranscriber = platformTranscriber,
-                            nullTranscriber = nullTranscriber,
-                            stages = stages
-                        )
-                    }
-                }
+            // Stage 1: transcribe — branch on sourceType (AUDIO vs IMAGE) and persist immediately
+            val isImageNote = currentNote.sourceType == NoteSourceType.IMAGE.name
+            val transcript = if (isImageNote) {
+                transcribeStage1(
+                    capabilityName = "image_transcriber",
+                    probedStatus = capabilityProbe.imageTranscriberStatus(),
+                    primaryStatus = { imageTranscriber.status() },
+                    primaryTranscribe = { imageTranscriber.transcribeImage(currentNote.imagePath) },
+                    fallbackStatus = { fallbackImageTranscriber.status() },
+                    fallbackTranscribe = { fallbackImageTranscriber.transcribeImage(currentNote.imagePath) },
+                    nullTranscribe = { nullImageTranscriber.transcribeImage(currentNote.imagePath) },
+                    stages = stages
+                )
+            } else {
+                transcribeStage1(
+                    capabilityName = "transcriber",
+                    probedStatus = capabilityProbe.transcriberStatus(),
+                    primaryStatus = { transcriber.status() },
+                    primaryTranscribe = { transcriber.transcribe(currentNote.audioPath) },
+                    fallbackStatus = { platformTranscriber.status() },
+                    fallbackTranscribe = { platformTranscriber.transcribe(currentNote.audioPath) },
+                    nullTranscribe = { nullTranscriber.transcribe(currentNote.audioPath) },
+                    stages = stages
+                )
             }
 
             if (transcript == null || transcript.text.isBlank()) {
                 val tierToSave = transcript?.tier?.name ?: Tier.MINIMAL.name
+                val blankStatus = if (isImageNote) {
+                    NoteStatus.NEEDS_REVIEW.name
+                } else {
+                    NoteStatus.RECORDED.name
+                }
                 currentNote = currentNote.copy(
                     stageStatus = stages.joinToString(","),
                     transcript = transcript?.text ?: "",
                     tierUsed = tierToSave,
-                    status = NoteStatus.RECORDED.name
+                    status = blankStatus
                 )
                 dao?.update(currentNote)
                 return PipelineOutcome(
@@ -724,31 +725,93 @@ class SortingWorker(
             }
         }
 
-        private suspend fun transcribeWithPlatformOrNull(
-            audioPath: String,
-            platformTranscriber: Transcriber,
-            nullTranscriber: Transcriber,
+        private suspend fun transcribeStage1(
+            capabilityName: String,
+            probedStatus: CapabilityStatus,
+            primaryStatus: suspend () -> CapabilityStatus,
+            primaryTranscribe: suspend () -> Transcript,
+            fallbackStatus: suspend () -> CapabilityStatus,
+            fallbackTranscribe: suspend () -> Transcript,
+            nullTranscribe: suspend () -> Transcript,
             stages: MutableList<String>
-        ) = if (platformTranscriber.status() == CapabilityStatus.AVAILABLE) {
+        ): Transcript? = when (probedStatus) {
+            CapabilityStatus.UNAVAILABLE -> {
+                CapabilityProbe.logDemotion(capabilityName, Tier.FULL, Tier.MINIMAL)
+                val t = nullTranscribe()
+                stages += "transcribe_null:OK"
+                t
+            }
+            CapabilityStatus.DOWNLOADABLE, CapabilityStatus.BUSY -> {
+                CapabilityProbe.logDemotion(capabilityName, Tier.FULL, Tier.CORE)
+                transcribeWithFallbackOrNull(
+                    capabilityName = capabilityName,
+                    fallbackStatus = fallbackStatus,
+                    fallbackTranscribe = fallbackTranscribe,
+                    nullTranscribe = nullTranscribe,
+                    stages = stages
+                )
+            }
+            CapabilityStatus.AVAILABLE -> {
+                if (primaryStatus() == CapabilityStatus.AVAILABLE) {
+                    try {
+                        val t = primaryTranscribe()
+                        stages += "transcribe:OK"
+                        t
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: CapabilityBusyException) {
+                        stages += "transcribe:BUSY"
+                        CapabilityProbe.logDemotion(capabilityName, Tier.FULL, Tier.CORE)
+                        transcribeWithFallbackOrNull(
+                            capabilityName = capabilityName,
+                            fallbackStatus = fallbackStatus,
+                            fallbackTranscribe = fallbackTranscribe,
+                            nullTranscribe = nullTranscribe,
+                            stages = stages
+                        )
+                    } catch (_: Exception) {
+                        stages += "transcribe:FAILED"
+                        null
+                    }
+                } else {
+                    CapabilityProbe.logDemotion(capabilityName, Tier.FULL, Tier.CORE)
+                    transcribeWithFallbackOrNull(
+                        capabilityName = capabilityName,
+                        fallbackStatus = fallbackStatus,
+                        fallbackTranscribe = fallbackTranscribe,
+                        nullTranscribe = nullTranscribe,
+                        stages = stages
+                    )
+                }
+            }
+        }
+
+        private suspend fun transcribeWithFallbackOrNull(
+            capabilityName: String,
+            fallbackStatus: suspend () -> CapabilityStatus,
+            fallbackTranscribe: suspend () -> Transcript,
+            nullTranscribe: suspend () -> Transcript,
+            stages: MutableList<String>
+        ): Transcript? = if (fallbackStatus() == CapabilityStatus.AVAILABLE) {
             try {
-                val t = platformTranscriber.transcribe(audioPath)
+                val t = fallbackTranscribe()
                 stages += "transcribe_fallback:OK"
                 t
             } catch (e2: CancellationException) {
                 throw e2
-            } catch (e2: CapabilityBusyException) {
+            } catch (_: CapabilityBusyException) {
                 stages += "transcribe_fallback:BUSY"
-                CapabilityProbe.logDemotion("transcriber", Tier.CORE, Tier.MINIMAL)
-                val t = nullTranscriber.transcribe(audioPath)
+                CapabilityProbe.logDemotion(capabilityName, Tier.CORE, Tier.MINIMAL)
+                val t = nullTranscribe()
                 stages += "transcribe_null:OK"
                 t
-            } catch (e2: Exception) {
+            } catch (_: Exception) {
                 stages += "transcribe_fallback:FAILED"
                 null
             }
         } else {
-            CapabilityProbe.logDemotion("transcriber", Tier.CORE, Tier.MINIMAL)
-            val t = nullTranscriber.transcribe(audioPath)
+            CapabilityProbe.logDemotion(capabilityName, Tier.CORE, Tier.MINIMAL)
+            val t = nullTranscribe()
             stages += "transcribe_null:OK"
             t
         }

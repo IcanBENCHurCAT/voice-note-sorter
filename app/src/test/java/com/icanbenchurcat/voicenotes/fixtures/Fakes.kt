@@ -9,6 +9,7 @@ import com.icanbenchurcat.voicenotes.ai.Bucketer
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.Embedder
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
+import com.icanbenchurcat.voicenotes.ai.ImageTranscriber
 import com.icanbenchurcat.voicenotes.ai.Proofreader
 import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
@@ -63,6 +64,25 @@ class FakeProofreader(
         lastInput = rawTranscript
         if (exception != null) throw exception
         return transformer?.invoke(rawTranscript) ?: result ?: rawTranscript
+    }
+}
+
+class FakeImageTranscriber(
+    private val result: Transcript? = null,
+    private val exception: Exception? = null,
+    private val currentStatus: CapabilityStatus = CapabilityStatus.AVAILABLE
+) : ImageTranscriber {
+    var calls = 0
+        private set
+    var lastImagePath: String? = null
+        private set
+
+    override suspend fun status(): CapabilityStatus = currentStatus
+    override suspend fun transcribeImage(imagePath: String): Transcript {
+        calls++
+        lastImagePath = imagePath
+        if (exception != null) throw exception
+        return result ?: Transcript("fake image transcript", Tier.CORE)
     }
 }
 
@@ -189,6 +209,9 @@ class InMemoryFakeNoteDao : NoteDao {
 
     override suspend fun allAudioPaths(): List<String> =
         notes.values.map { it.audioPath }
+
+    override suspend fun allImagePaths(): List<String> =
+        notes.values.map { it.imagePath }.filter { it.isNotBlank() }
 
     override suspend fun findNotesWithAudioOlderThan(cutoffEpochMs: Long): List<Note> =
         notes.values.filter { it.audioPath.isNotBlank() && it.createdAtEpochMs < cutoffEpochMs }

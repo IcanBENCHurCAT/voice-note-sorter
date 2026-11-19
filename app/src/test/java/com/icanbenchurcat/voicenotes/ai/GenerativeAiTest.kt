@@ -92,7 +92,10 @@ class FakeGenAiPromptClient(
     var cachingAvailable: Boolean = false,
     var typedResponse: Any? = null,
     var typedException: Exception? = null,
-    private val typedResponder: ((PromptRequest, KClass<*>) -> Any?)? = null
+    private val typedResponder: ((PromptRequest, KClass<*>) -> Any?)? = null,
+    var imageResponse: String = "",
+    var imageGenerateException: Exception? = null,
+    private val imageResponder: ((String, String) -> String)? = null
 ) : GenAiPromptClient {
     var statusCalls = 0
         private set
@@ -100,10 +103,14 @@ class FakeGenAiPromptClient(
         private set
     var generateTypedCalls = 0
         private set
+    var imageGenerateCalls = 0
+        private set
     var warmupCalls = 0
     var clearImplicitCachesCalls = 0
     var closeCalls = 0
     var lastPrompt: String? = null
+        private set
+    var lastImagePath: String? = null
         private set
     var lastRequest: PromptRequest? = null
         private set
@@ -151,6 +158,14 @@ class FakeGenAiPromptClient(
         lastRequest = request
         textRequests += request
         return generateText(request.prompt)
+    }
+
+    override suspend fun generateTextFromImage(imagePath: String, prompt: String): String {
+        imageGenerateCalls++
+        lastImagePath = imagePath
+        lastPrompt = prompt
+        imageGenerateException?.let { throw it }
+        return imageResponder?.invoke(imagePath, prompt) ?: imageResponse
     }
 
     override fun openSession(): GenAiPromptSession =

@@ -299,7 +299,7 @@ internal fun shouldShowSharedFoundationModelBanner(uiState: CapabilitySettingsUi
         uiState.actionExtractorStatus == CapabilityStatus.DOWNLOADABLE
 
 internal fun canDeleteAllNotes(storageStats: StorageStats): Boolean =
-    storageStats.noteCount > 0 || storageStats.audioSizeBytes > 0L
+    storageStats.noteCount > 0 || storageStats.audioSizeBytes > 0L || storageStats.imageSizeBytes > 0L
 
 @Composable
 fun SharedFoundationModelBanner() {
@@ -599,6 +599,26 @@ fun StorageStatsCard(
                     )
                     Text(
                         text = formatFileSize(storageStats.audioSizeBytes),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.storage_image_usage),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = formatFileSize(storageStats.imageSizeBytes),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface

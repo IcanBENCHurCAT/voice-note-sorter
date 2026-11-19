@@ -16,14 +16,18 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.DeterministicTranscriptCleaner
 import com.icanbenchurcat.voicenotes.ai.ExtractiveSummarizer
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
+import com.icanbenchurcat.voicenotes.ai.FakeBundledOcrEngine
 import com.icanbenchurcat.voicenotes.ai.FakeCapabilityChecker
 import com.icanbenchurcat.voicenotes.ai.FakeGenAiPromptClient
 import com.icanbenchurcat.voicenotes.ai.HeuristicActionExtractor
 import com.icanbenchurcat.voicenotes.ai.HeuristicBucketer
+import com.icanbenchurcat.voicenotes.ai.MlKitOcrImageTranscriber
 import com.icanbenchurcat.voicenotes.ai.NanoActionExtractor
 import com.icanbenchurcat.voicenotes.ai.NanoBucketer
+import com.icanbenchurcat.voicenotes.ai.NanoImageTranscriber
 import com.icanbenchurcat.voicenotes.ai.NanoProofreader
 import com.icanbenchurcat.voicenotes.ai.NanoSummarizer
+import com.icanbenchurcat.voicenotes.ai.NullImageTranscriber
 import com.icanbenchurcat.voicenotes.ai.NullTranscriber
 import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
@@ -43,6 +47,7 @@ import com.icanbenchurcat.voicenotes.data.EmbeddingCodec
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
 import com.icanbenchurcat.voicenotes.data.NoteEmbedding
+import com.icanbenchurcat.voicenotes.data.NoteSourceType
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
@@ -1607,5 +1612,278 @@ class SortingWorkerTest {
             "transcribe:OK,proofread:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             noteAfterRun2.stageStatus
         )
+    }
+
+    @Test
+    fun imageNote_tier3Available_branchesToImageTranscriberAndFilesThroughStages2To4() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val imageFile = tempFolder.newFile("notebook_page.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val noteId = dao.insert(
+            Note(
+                createdAtEpochMs = 1_700_000_000_000L,
+                sourceType = NoteSourceType.IMAGE.name,
+                imagePath = imageFile.absolutePath
+            )
+        )
+
+        val audioTranscriber = FakeTranscriber(result = Transcript("audio should not run", Tier.FULL))
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            imageResponse = "Remind me to buy oat milk and schedule dentist tomorrow.",
+            responder = { prompt ->
+                when {
+                    prompt.startsWith("Summarize") ->
+                        "Title: Notebook Errands\nSummary: Buy oat milk and schedule dentist tomorrow."
+                    prompt.startsWith("Extract concrete action items") ->
+                        "ACTION: Buy oat milk | DUE: NONE\nACTION: Schedule dentist | DUE: tomorrow"
+                    prompt.startsWith("Classify") ->
+                        "BUCKET: TASK\nTAGS: errands, notebook"
+                    else -> ""
+                }
+            }
+        )
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.UNAVAILABLE,
+                imageTranscriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val ocrFallback = MlKitOcrImageTranscriber(FakeBundledOcrEngine(available = true))
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = audioTranscriber,
+            platformTranscriber = audioTranscriber,
+            nullTranscriber = NullTranscriber,
+            summarizer = NanoSummarizer(promptClient),
+            extractor = NanoActionExtractor(promptClient),
+            bucketer = NanoBucketer(promptClient),
+            dao = dao,
+            imageTranscriber = NanoImageTranscriber(promptClient, ocrFallback),
+            fallbackImageTranscriber = ocrFallback,
+            nullImageTranscriber = NullImageTranscriber
+        )
+
+        assertEquals(0, audioTranscriber.calls)
+        assertEquals(1, promptClient.imageGenerateCalls)
+        assertEquals(imageFile.absolutePath, outcome.updatedNote.imagePath)
+        assertEquals("Remind me to buy oat milk and schedule dentist tomorrow.", outcome.updatedNote.transcript)
+        assertEquals("Notebook Errands", outcome.updatedNote.title)
+        assertEquals("TASK", outcome.updatedNote.bucketKind)
+        assertEquals("FULL", outcome.updatedNote.tierUsed)
+        assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
+        assertEquals(2, outcome.extractedActions.size)
+        assertEquals(listOf("errands", "notebook"), outcome.tags)
+    }
+
+    @Test
+    fun imageNote_busyDemotesToTier2BundledOcr_andMarksNeedsReview() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val imageFile = tempFolder.newFile("whiteboard.jpg").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        val noteId = dao.insert(
+            Note(
+                createdAtEpochMs = 1_700_000_000_000L,
+                sourceType = NoteSourceType.IMAGE.name,
+                imagePath = imageFile.absolutePath
+            )
+        )
+
+        val busyClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            imageGenerateException = CapabilityBusyException()
+        )
+        val ocrEngine = FakeBundledOcrEngine(available = true) {
+            "Shopping list: sourdough bread and dark roast coffee."
+        }
+        val ocrTranscriber = MlKitOcrImageTranscriber(ocrEngine)
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.UNAVAILABLE,
+                imageTranscriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.UNAVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE
+            ),
+            dataStore
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao,
+            imageTranscriber = NanoImageTranscriber(busyClient, ocrTranscriber),
+            fallbackImageTranscriber = ocrTranscriber,
+            nullImageTranscriber = NullImageTranscriber
+        )
+
+        assertEquals(1, busyClient.imageGenerateCalls)
+        assertEquals(listOf(imageFile.absolutePath), ocrEngine.recognizedFiles)
+        assertEquals("Shopping list: sourdough bread and dark roast coffee.", outcome.updatedNote.transcript)
+        assertEquals("LIST", outcome.updatedNote.bucketKind)
+        assertEquals("CORE", outcome.updatedNote.tierUsed)
+        assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
+        assertEquals(
+            "transcribe:BUSY,transcribe_fallback:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
+            outcome.updatedNote.stageStatus
+        )
+    }
+
+    @Test
+    fun imageNote_tier1NullOrBlankOutput_retainsImageAttachmentAndMarksNeedsReview() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val imageFile = tempFolder.newFile("sketch.jpg").apply { writeBytes(byteArrayOf(9, 9, 9)) }
+        val note1Id = dao.insert(
+            Note(
+                createdAtEpochMs = 1_700_000_000_000L,
+                sourceType = NoteSourceType.IMAGE.name,
+                imagePath = imageFile.absolutePath
+            )
+        )
+
+        // Case 1: CapabilityProbe reports UNAVAILABLE -> NullImageTranscriber
+        val unavailableProbe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.UNAVAILABLE,
+                imageTranscriber = CapabilityStatus.UNAVAILABLE,
+                summarizer = CapabilityStatus.UNAVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE
+            ),
+            dataStore
+        )
+
+        val outcome1 = SortingWorker.executePipeline(
+            note = dao.byId(note1Id)!!,
+            capabilityProbe = unavailableProbe,
+            transcriber = FakeTranscriber(),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao,
+            imageTranscriber = NullImageTranscriber,
+            fallbackImageTranscriber = NullImageTranscriber,
+            nullImageTranscriber = NullImageTranscriber
+        )
+
+        assertEquals(imageFile.absolutePath, outcome1.updatedNote.imagePath)
+        assertEquals("", outcome1.updatedNote.transcript)
+        assertEquals("MINIMAL", outcome1.updatedNote.tierUsed)
+        assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome1.updatedNote.status)
+        assertEquals("transcribe_null:OK", outcome1.updatedNote.stageStatus)
+
+        // Case 2: Tier 2 OCR runs on an unreadable/blank drawing -> blank text -> retains image & NEEDS_REVIEW
+        val note2Id = dao.insert(
+            Note(
+                createdAtEpochMs = 1_700_000_001_000L,
+                sourceType = NoteSourceType.IMAGE.name,
+                imagePath = imageFile.absolutePath
+            )
+        )
+        val blankOcr = MlKitOcrImageTranscriber(FakeBundledOcrEngine(available = true) { "   " })
+        val availableProbe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.UNAVAILABLE,
+                imageTranscriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.UNAVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE
+            ),
+            dataStore
+        )
+
+        val outcome2 = SortingWorker.executePipeline(
+            note = dao.byId(note2Id)!!,
+            capabilityProbe = availableProbe,
+            transcriber = FakeTranscriber(),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao,
+            imageTranscriber = NanoImageTranscriber(FakeGenAiPromptClient(CapabilityStatus.UNAVAILABLE), blankOcr),
+            fallbackImageTranscriber = blankOcr,
+            nullImageTranscriber = NullImageTranscriber
+        )
+
+        assertEquals(imageFile.absolutePath, outcome2.updatedNote.imagePath)
+        assertEquals("", outcome2.updatedNote.transcript)
+        assertEquals("MINIMAL", outcome2.updatedNote.tierUsed)
+        assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome2.updatedNote.status)
+    }
+
+    @Test
+    fun imageNote_runningPipelineTwice_isIdempotent() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val imageFile = tempFolder.newFile("idempotent_board.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val noteId = dao.insert(
+            Note(
+                createdAtEpochMs = 1_700_000_000_000L,
+                sourceType = NoteSourceType.IMAGE.name,
+                imagePath = imageFile.absolutePath
+            )
+        )
+
+        val ocrEngine = FakeBundledOcrEngine(available = true) {
+            "Remind me to buy copper wire. Call the electrician tomorrow."
+        }
+        val ocrTranscriber = MlKitOcrImageTranscriber(ocrEngine)
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.UNAVAILABLE,
+                imageTranscriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.UNAVAILABLE,
+                actions = CapabilityStatus.UNAVAILABLE
+            ),
+            dataStore
+        )
+
+        SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao,
+            imageTranscriber = NanoImageTranscriber(FakeGenAiPromptClient(CapabilityStatus.UNAVAILABLE), ocrTranscriber),
+            fallbackImageTranscriber = ocrTranscriber,
+            nullImageTranscriber = NullImageTranscriber
+        )
+
+        val noteRun1 = dao.byId(noteId)!!
+        val actionsRun1 = dao.actionsFor(noteId).map { it.copy(id = 0L) }
+        val tagsRun1 = dao.tagsFor(noteId)
+
+        SortingWorker.executePipeline(
+            note = noteRun1,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao,
+            imageTranscriber = NanoImageTranscriber(FakeGenAiPromptClient(CapabilityStatus.UNAVAILABLE), ocrTranscriber),
+            fallbackImageTranscriber = ocrTranscriber,
+            nullImageTranscriber = NullImageTranscriber
+        )
+
+        assertEquals(noteRun1, dao.byId(noteId)!!)
+        assertEquals(actionsRun1, dao.actionsFor(noteId).map { it.copy(id = 0L) })
+        assertEquals(tagsRun1, dao.tagsFor(noteId))
+        assertTrue(actionsRun1.isNotEmpty())
     }
 }

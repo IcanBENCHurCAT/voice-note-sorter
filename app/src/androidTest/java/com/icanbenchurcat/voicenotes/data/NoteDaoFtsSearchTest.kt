@@ -3,6 +3,9 @@
 package com.icanbenchurcat.voicenotes.data
 
 import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.first
@@ -98,5 +101,128 @@ class NoteDaoFtsSearchTest {
         val malformed2 = "!@#$%^&*()\"\"\""
         val sanitized2 = FtsQuerySanitizer.sanitize(malformed2)
         assertEquals(null, sanitized2)
+    }
+
+    @Test
+    fun migration2To3_createsNoteEmbeddingsTable() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val dbName = "migration_test_v2_to_v3.db"
+        context.deleteDatabase(dbName)
+
+        try {
+            val helperV2 = FrameworkSQLiteOpenHelperFactory().create(
+                SupportSQLiteOpenHelper.Configuration.builder(context)
+                    .name(dbName)
+                    .callback(object : SupportSQLiteOpenHelper.Callback(2) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL(
+                                "CREATE TABLE IF NOT EXISTS `notes` (" +
+                                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                                    "`createdAtEpochMs` INTEGER NOT NULL, " +
+                                    "`audioPath` TEXT NOT NULL, " +
+                                    "`transcript` TEXT NOT NULL, " +
+                                    "`title` TEXT NOT NULL, " +
+                                    "`summary` TEXT NOT NULL, " +
+                                    "`bucketKind` TEXT NOT NULL, " +
+                                    "`tierUsed` TEXT NOT NULL, " +
+                                    "`stageStatus` TEXT NOT NULL, " +
+                                    "`status` TEXT NOT NULL DEFAULT 'RECORDED')"
+                            )
+                        }
+
+                        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+                    })
+                    .build()
+            )
+            helperV2.writableDatabase.close()
+            helperV2.close()
+
+            val helperV3 = FrameworkSQLiteOpenHelperFactory().create(
+                SupportSQLiteOpenHelper.Configuration.builder(context)
+                    .name(dbName)
+                    .callback(object : SupportSQLiteOpenHelper.Callback(3) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {}
+                        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+                            AppDatabase.MIGRATION_2_3.migrate(db)
+                        }
+                    })
+                    .build()
+            )
+            helperV3.writableDatabase.use { v3Db ->
+                v3Db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='note_embeddings'").use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals("note_embeddings", cursor.getString(0))
+                }
+            }
+            helperV3.close()
+        } finally {
+            context.deleteDatabase(dbName)
+        }
+    }
+
+    @Test
+    fun migration3To4_preservesExistingAudioRowsWithDefaultSourceTypeAndEmptyImagePath() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val dbName = "migration_test_v3_to_v4.db"
+        context.deleteDatabase(dbName)
+
+        try {
+            val helperV3 = FrameworkSQLiteOpenHelperFactory().create(
+                SupportSQLiteOpenHelper.Configuration.builder(context)
+                    .name(dbName)
+                    .callback(object : SupportSQLiteOpenHelper.Callback(3) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL(
+                                "CREATE TABLE IF NOT EXISTS `notes` (" +
+                                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                                    "`createdAtEpochMs` INTEGER NOT NULL, " +
+                                    "`audioPath` TEXT NOT NULL, " +
+                                    "`transcript` TEXT NOT NULL, " +
+                                    "`title` TEXT NOT NULL, " +
+                                    "`summary` TEXT NOT NULL, " +
+                                    "`bucketKind` TEXT NOT NULL, " +
+                                    "`tierUsed` TEXT NOT NULL, " +
+                                    "`stageStatus` TEXT NOT NULL, " +
+                                    "`status` TEXT NOT NULL DEFAULT 'RECORDED')"
+                            )
+                            AppDatabase.MIGRATION_2_3.migrate(db)
+                        }
+
+                        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+                    })
+                    .build()
+            )
+            helperV3.writableDatabase.use { v3Db ->
+                v3Db.execSQL(
+                    "INSERT INTO notes (id, createdAtEpochMs, audioPath, transcript, title, summary, bucketKind, tierUsed, stageStatus, status) " +
+                        "VALUES (1, 1000, '/files/recordings/1.m4a', 'Buy milk', 'Milk', 'Buy milk', 'TASK', 'CORE', 'transcribe:OK', 'SORTED')"
+                )
+            }
+            helperV3.close()
+
+            val helperV4 = FrameworkSQLiteOpenHelperFactory().create(
+                SupportSQLiteOpenHelper.Configuration.builder(context)
+                    .name(dbName)
+                    .callback(object : SupportSQLiteOpenHelper.Callback(4) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {}
+                        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+                            AppDatabase.MIGRATION_3_4.migrate(db)
+                        }
+                    })
+                    .build()
+            )
+            helperV4.writableDatabase.use { v4Db ->
+                v4Db.query("SELECT sourceType, imagePath, audioPath, status FROM notes WHERE id = 1").use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals("AUDIO", cursor.getString(0))
+                    assertEquals("", cursor.getString(1))
+                    assertEquals("/files/recordings/1.m4a", cursor.getString(2))
+                    assertEquals("SORTED", cursor.getString(3))
+                }
+            }
+            helperV4.close()
+        } finally {
+            context.deleteDatabase(dbName)
+        }
     }
 }

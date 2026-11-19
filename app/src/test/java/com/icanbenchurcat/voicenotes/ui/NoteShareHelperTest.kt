@@ -3,6 +3,7 @@
 package com.icanbenchurcat.voicenotes.ui
 
 import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.NoteSourceType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -84,5 +85,28 @@ class NoteShareHelperTest {
 
         val formatted = NoteShareHelper.formatShareText(emptyNote)
         assertEquals("", formatted)
+    }
+
+    @Test
+    fun formatShareText_formatsImageNoteWithoutAudioPath() {
+        val imageNote = Note(
+            id = 5L,
+            createdAtEpochMs = 123456789L,
+            sourceType = NoteSourceType.IMAGE.name,
+            imagePath = "/data/user/0/app/files/images/scan.jpg",
+            title = "Whiteboard Architecture",
+            summary = "Three-tier OCR pipeline.",
+            transcript = "Tier 3 Nano ImagePart -> Tier 2 Bundled OCR -> Tier 1 Review"
+        )
+
+        val formatted = NoteShareHelper.formatShareText(imageNote)
+        val expected = """
+            Whiteboard Architecture
+
+            Summary: Three-tier OCR pipeline.
+
+            Transcript: Tier 3 Nano ImagePart -> Tier 2 Bundled OCR -> Tier 1 Review
+        """.trimIndent()
+        assertEquals(expected, formatted)
     }
 }

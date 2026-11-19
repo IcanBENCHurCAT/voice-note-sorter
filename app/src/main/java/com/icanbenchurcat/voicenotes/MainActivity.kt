@@ -11,14 +11,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,11 +35,14 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,7 +54,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -65,6 +75,8 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.capture.CaptureSessionState
+import com.icanbenchurcat.voicenotes.capture.ImageFileManager
+import com.icanbenchurcat.voicenotes.capture.ImageIngestionCoordinator
 import com.icanbenchurcat.voicenotes.capture.RecordingService
 import com.icanbenchurcat.voicenotes.capture.StartCaptureUseCase
 import com.icanbenchurcat.voicenotes.data.ActionItem
@@ -94,6 +106,7 @@ import com.icanbenchurcat.voicenotes.ui.RootTopAppBar
 import com.icanbenchurcat.voicenotes.ui.SettingsScreen
 import com.icanbenchurcat.voicenotes.ui.TasksScreen
 import com.icanbenchurcat.voicenotes.ui.theme.VoiceNoteSorterTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -260,6 +273,98 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                var showImageCaptureDialog by remember { mutableStateOf(false) }
+                var pendingCameraImagePath by rememberSaveable { mutableStateOf<String?>(null) }
+
+                val pickVisualMediaLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.PickVisualMedia()
+                ) { uri ->
+                    if (uri != null) {
+                        scope.launch(Dispatchers.IO) {
+                            val noteId = ImageIngestionCoordinator.ingestFromPickedUri(context, uri)
+                            if (noteId != null) {
+                                refreshStorageStats()
+                            }
+                        }
+                    }
+                }
+
+                val takePictureLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.TakePicture()
+                ) { saved ->
+                    val path = pendingCameraImagePath
+                    pendingCameraImagePath = null
+                    if (path != null) {
+                        val file = java.io.File(path)
+                        if (saved) {
+                            scope.launch(Dispatchers.IO) {
+                                val noteId = ImageIngestionCoordinator.ingestFromCameraFile(context, file)
+                                if (noteId == null && file.exists()) {
+                                    file.delete()
+                                } else {
+                                    refreshStorageStats()
+                                }
+                            }
+                        } else if (file.exists()) {
+                            file.delete()
+                        }
+                    }
+                }
+
+                if (showImageCaptureDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showImageCaptureDialog = false },
+                        title = { Text(stringResource(R.string.dialog_image_capture_title)) },
+                        text = {
+                            Column {
+                                Text(stringResource(R.string.dialog_image_capture_message))
+                                Spacer(modifier = Modifier.height(16.dp))
+                                FilledTonalButton(
+                                    onClick = {
+                                        showImageCaptureDialog = false
+                                        val outputFile = ImageFileManager.createImageOutputFile(context)
+                                        pendingCameraImagePath = outputFile.absolutePath
+                                        try {
+                                            val uri = ImageFileManager.createCameraImageUri(context, outputFile)
+                                            takePictureLauncher.launch(uri)
+                                        } catch (_: Exception) {
+                                            pendingCameraImagePath = null
+                                            if (outputFile.exists()) outputFile.delete()
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .defaultMinSize(minHeight = 48.dp)
+                                ) {
+                                    Text(stringResource(R.string.action_take_photo))
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        showImageCaptureDialog = false
+                                        runCatching {
+                                            pickVisualMediaLauncher.launch(
+                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .defaultMinSize(minHeight = 48.dp)
+                                ) {
+                                    Text(stringResource(R.string.action_pick_photo))
+                                }
+                            }
+                        },
+                        confirmButton = {},
+                        dismissButton = {
+                            TextButton(onClick = { showImageCaptureDialog = false }) {
+                                Text(stringResource(R.string.dialog_cancel))
+                            }
+                        }
+                    )
+                }
+
                 fun probeAllCapabilities() {
                     scope.launch {
                         isProbingCapabilities = true
@@ -327,12 +432,31 @@ class MainActivity : ComponentActivity() {
                     },
                     floatingActionButton = {
                         if (isRootTab) {
-                            RootRecordFab(
-                                isRecording = recordingSessionState is CaptureSessionState.Recording,
-                                onStartRecording = { triggerCapture() },
-                                onStopRecording = { captureUseCase.stopRecording() },
+                            val scanPhotoDesc = stringResource(R.string.cd_scan_photo_fab)
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier = Modifier.navigationBarsPadding()
-                            )
+                            ) {
+                                SmallFloatingActionButton(
+                                    onClick = { showImageCaptureDialog = true },
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier
+                                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                        .semantics { contentDescription = scanPhotoDesc }
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_scan_photo),
+                                        contentDescription = null
+                                    )
+                                }
+                                RootRecordFab(
+                                    isRecording = recordingSessionState is CaptureSessionState.Recording,
+                                    onStartRecording = { triggerCapture() },
+                                    onStopRecording = { captureUseCase.stopRecording() }
+                                )
+                            }
                         }
                     }
                 ) { padding ->
@@ -540,12 +664,16 @@ class MainActivity : ComponentActivity() {
                                             val hasAudio = remember(note.audioPath) {
                                                 note.audioPath.isNotBlank() && java.io.File(note.audioPath).exists()
                                             }
+                                            val hasImage = remember(note.imagePath) {
+                                                note.imagePath.isNotBlank() && java.io.File(note.imagePath).exists()
+                                            }
                                             NoteDetailScreen(
                                                 note = note,
                                                 actions = noteActions,
                                                 tags = noteTagsList,
                                                 transcriberStatus = transcriberStatus,
                                                 hasAudioFile = hasAudio,
+                                                hasImageFile = hasImage,
                                                 buckets = buckets,
                                                 isDeveloperModeEnabled = isDeveloperModeEnabled,
                                                 onBack = {
@@ -592,6 +720,7 @@ class MainActivity : ComponentActivity() {
                                                 onDeleteNote = {
                                                     scope.launch {
                                                         deletionCoordinator.deleteNote(note.id)
+                                                        refreshStorageStats()
                                                         if (backStack.lastOrNull() == key) {
                                                             backStack.removeLastOrNull()
                                                         }
@@ -623,6 +752,16 @@ class MainActivity : ComponentActivity() {
                                                 },
                                                 onShareAudio = {
                                                     val chooser = NoteShareHelper.createShareAudioIntent(
+                                                        context = context,
+                                                        note = note,
+                                                        chooserTitle = context.getString(R.string.share_sheet_title)
+                                                    )
+                                                    if (chooser != null) {
+                                                        context.startActivity(chooser)
+                                                    }
+                                                },
+                                                onShareImage = {
+                                                    val chooser = NoteShareHelper.createShareImageIntent(
                                                         context = context,
                                                         note = note,
                                                         chooserTitle = context.getString(R.string.share_sheet_title)

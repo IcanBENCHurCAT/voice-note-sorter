@@ -209,4 +209,27 @@ class StorageRetentionManagerTest {
         assertEquals(1, countWhenEnabled)
         assertFalse("Audio file should be purged when auto-delete is enabled", oldAudioFile.exists())
     }
+
+    @Test
+    fun storageStats_includesImageFilesInImagesDir() = runBlocking {
+        val imagesDir = File(audioDir, "images").apply { mkdirs() }
+        val trackedImage = File(imagesDir, "scan_1.jpg").apply { writeBytes(ByteArray(3072)) }
+        val untrackedImage = File(imagesDir, "scan_2.png").apply { writeBytes(ByteArray(1024)) }
+
+        dao.insert(
+            Note(
+                createdAtEpochMs = 3000L,
+                sourceType = NoteSourceType.IMAGE.name,
+                imagePath = trackedImage.absolutePath,
+                title = "Scanned Page",
+                transcript = "Text from image"
+            )
+        )
+
+        assertTrue(untrackedImage.exists())
+        val stats = manager.getStorageStats()
+        assertEquals(1, stats.noteCount)
+        assertEquals(0L, stats.audioSizeBytes)
+        assertEquals(4096L, stats.imageSizeBytes)
+    }
 }

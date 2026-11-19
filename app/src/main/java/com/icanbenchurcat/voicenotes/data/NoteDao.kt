@@ -23,6 +23,9 @@ interface NoteDao {
     @Query("SELECT audioPath FROM notes")
     suspend fun allAudioPaths(): List<String>
 
+    @Query("SELECT imagePath FROM notes WHERE imagePath != ''")
+    suspend fun allImagePaths(): List<String>
+
     @Query("SELECT * FROM notes WHERE audioPath != '' AND createdAtEpochMs < :cutoffEpochMs")
     suspend fun findNotesWithAudioOlderThan(cutoffEpochMs: Long): List<Note>
 
