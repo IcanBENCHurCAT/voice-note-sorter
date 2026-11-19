@@ -2,6 +2,18 @@
 
 package com.icanbenchurcat.voicenotes.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.test.DeviceConfigurationOverride
+import androidx.compose.ui.test.WindowInsets
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
@@ -15,7 +27,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.Insets
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.Tier
@@ -24,6 +39,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.abs
 
 @RunWith(AndroidJUnit4::class)
 class SettingsScreenTest {
@@ -242,5 +258,100 @@ class SettingsScreenTest {
         composeTestRule.onNodeWithText("No voice notes or audio recordings to delete.")
             .performScrollTo()
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun topBarActions_rendersInsideTopAppBarAlignedWithTitle() {
+        var clicked = false
+
+        composeTestRule.setContent {
+            SettingsScreen(
+                uiState = CapabilitySettingsUiState(
+                    tier = Tier.CORE,
+                    isDeveloperModeEnabled = true
+                ),
+                onBack = {},
+                topBarActions = {
+                    IconButton(
+                        onClick = { clicked = true },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .semantics { contentDescription = "Developer options" }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Build,
+                            contentDescription = null
+                        )
+                    }
+                }
+            )
+        }
+
+        val devAction = composeTestRule.onNodeWithContentDescription("Developer options")
+        devAction.assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+
+        val titleBounds = composeTestRule.onNodeWithText("Device Capabilities").fetchSemanticsNode().boundsInRoot
+        val actionBounds = devAction.fetchSemanticsNode().boundsInRoot
+        // Action icon shares the TopAppBar row with the title (vertical centers align)
+        val titleCenterY = (titleBounds.top + titleBounds.bottom) / 2f
+        val actionCenterY = (actionBounds.top + actionBounds.bottom) / 2f
+        assertTrue(
+            "Expected Developer options inside TopAppBar vertically aligned with title, diff=${abs(titleCenterY - actionCenterY)}",
+            abs(titleCenterY - actionCenterY) <= actionBounds.height
+        )
+
+        devAction.performClick()
+        assertTrue(clicked)
+    }
+
+    @Test
+    fun bottomSettingsList_appliesNavigationBarInsetsAndDoesNotClipDeveloperOptionsSubtitle() {
+        var density: Density? = null
+        val navBarBottomDp = 48.dp
+
+        composeTestRule.setContent {
+            val currentDensity = LocalDensity.current
+            density = currentDensity
+            val navBarPx = with(currentDensity) { navBarBottomDp.roundToPx() }
+            val windowInsets = WindowInsetsCompat.Builder()
+                .setInsets(
+                    WindowInsetsCompat.Type.navigationBars(),
+                    Insets.of(0, 0, 0, navBarPx)
+                )
+                .build()
+
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.WindowInsets(windowInsets)
+            ) {
+                Box(modifier = Modifier.size(width = 360.dp, height = 640.dp)) {
+                    SettingsScreen(
+                        uiState = CapabilitySettingsUiState(
+                            tier = Tier.FULL,
+                            transcriberStatus = CapabilityStatus.AVAILABLE,
+                            summarizerStatus = CapabilityStatus.AVAILABLE,
+                            actionExtractorStatus = CapabilityStatus.AVAILABLE,
+                            isDeveloperModeEnabled = true
+                        ),
+                        onBack = {}
+                    )
+                }
+            }
+        }
+
+        val subtitleText = "Show sample data and reset controls on the home screen"
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasText(subtitleText))
+
+        val subtitleNode = composeTestRule.onNodeWithText(subtitleText)
+        subtitleNode.assertIsDisplayed()
+
+        val listBounds = composeTestRule.onNodeWithTag("settings_list").fetchSemanticsNode().boundsInRoot
+        val subtitleBounds = subtitleNode.fetchSemanticsNode().boundsInRoot
+        val minClearancePx = with(density!!) { (navBarBottomDp + 24.dp).toPx() }
+        val actualClearancePx = listBounds.bottom - subtitleBounds.bottom
+        assertTrue(
+            "Expected >= ${minClearancePx}px clearance below Developer options subtitle for nav bar + 24dp padding, got ${actualClearancePx}px",
+            actualClearancePx >= minClearancePx - 1f
+        )
     }
 }
