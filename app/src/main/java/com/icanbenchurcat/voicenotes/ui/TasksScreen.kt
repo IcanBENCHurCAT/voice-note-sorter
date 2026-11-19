@@ -17,9 +17,14 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,8 +43,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
-import java.text.DateFormat
-import java.util.Date
 
 enum class TaskFilter {
     ALL,
@@ -52,9 +55,12 @@ fun TasksScreen(
     tasks: List<ActionItemWithNote>,
     onToggleDone: (Long, Boolean) -> Unit,
     onOpenNote: (Long) -> Unit,
+    onUpdateTask: (Long, String, Long?) -> Unit = { _, _, _ -> },
+    onDeleteTask: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedFilter by rememberSaveable { mutableStateOf(TaskFilter.ALL) }
+    var editingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     val activeCount = tasks.count { !it.done }
     val completedCount = tasks.count { it.done }
@@ -108,15 +114,52 @@ fun TasksScreen(
             val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 80.dp + navBarBottom),
+                contentPadding = PaddingValues(top = 4.dp, bottom = 80.dp + navBarBottom),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(displayedTasks, key = { it.id }) { item ->
-                    TaskCard(
-                        item = item,
-                        onToggleDone = { onToggleDone(item.id, !item.done) },
-                        onOpenNote = { onOpenNote(item.noteId) }
-                    )
+                    if (editingTaskId == item.id) {
+                        val parentTitle = item.noteTitle.ifBlank { "Note #${item.noteId}" }
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "From: $parentTitle",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                InlineActionItemEditor(
+                                    editorKey = "task_${item.id}",
+                                    initialText = item.text,
+                                    initialDueAtEpochMs = item.dueAtEpochMs,
+                                    confirmLabel = stringResource(R.string.action_save_note),
+                                    onSave = { newText, newDue ->
+                                        onUpdateTask(item.id, newText, newDue)
+                                        editingTaskId = null
+                                    },
+                                    onCancel = { editingTaskId = null },
+                                    onDelete = {
+                                        onDeleteTask(item.id)
+                                        editingTaskId = null
+                                    }
+                                )
+                            }
+                        }
+                    } else {
+                        TaskCard(
+                            item = item,
+                            onToggleDone = { onToggleDone(item.id, !item.done) },
+                            onOpenNote = { onOpenNote(item.noteId) },
+                            onEdit = { editingTaskId = item.id },
+                            onDelete = { onDeleteTask(item.id) }
+                        )
+                    }
                 }
             }
         }
@@ -128,6 +171,8 @@ fun TaskCard(
     item: ActionItemWithNote,
     onToggleDone: () -> Unit,
     onOpenNote: () -> Unit,
+    onEdit: () -> Unit = {},
+    onDelete: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -140,7 +185,7 @@ fun TaskCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Interactive Checkbox with >= 48dp minimum touch target
@@ -165,7 +210,7 @@ fun TaskCard(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 8.dp)
+                    .padding(start = 4.dp)
             ) {
                 Text(
                     text = item.text,
@@ -173,16 +218,10 @@ fun TaskCard(
                     textDecoration = if (item.done) TextDecoration.LineThrough else TextDecoration.None
                 )
 
-                if (item.dueAtEpochMs != null) {
-                    val formattedDate = DateFormat.getDateInstance(DateFormat.MEDIUM)
-                        .format(Date(item.dueAtEpochMs))
-                    Text(
-                        text = "Due: $formattedDate",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
+                ActionDueDateBadge(
+                    dueAtEpochMs = item.dueAtEpochMs,
+                    onClick = onEdit
+                )
 
                 val parentTitle = item.noteTitle.ifBlank { "Note #${item.noteId}" }
                 Text(
@@ -193,8 +232,31 @@ fun TaskCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .padding(top = 4.dp)
-                        .clickable(onClick = onOpenNote)
                         .semantics { contentDescription = "From note $parentTitle" }
+                )
+            }
+
+            IconButton(
+                onClick = onEdit,
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = "Edit task: ${item.text}" }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = null
+                )
+            }
+
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = "Delete task: ${item.text}" }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null
                 )
             }
         }

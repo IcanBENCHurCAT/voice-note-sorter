@@ -25,16 +25,19 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
+import com.icanbenchurcat.voicenotes.ai.PlatformDateParser
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
+import com.icanbenchurcat.voicenotes.data.NoteDao
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Clock
 
 /**
  * Debug-only seed dataset and UI controls so the list, detail, buckets, tags,
@@ -49,16 +52,18 @@ object DebugSeedData {
         db.clearAllTables()
     }
 
-    suspend fun seed(db: AppDatabase) = withContext(Dispatchers.IO) {
+    suspend fun seed(db: AppDatabase, clock: Clock = Clock.systemDefaultZone()) = withContext(Dispatchers.IO) {
         db.clearAllTables()
-        val dao = db.noteDao()
+        seedInto(db.noteDao(), clock)
+    }
 
+    internal suspend fun seedInto(dao: NoteDao, clock: Clock = Clock.systemDefaultZone()) {
         val defaultBuckets = DefaultBucketProfileProvider.profile().buckets.map {
             Bucket(kind = it.kind, name = it.name)
         }
         dao.insertBuckets(defaultBuckets)
 
-        val now = System.currentTimeMillis()
+        val now = clock.millis()
         val dayMs = 24L * 60L * 60L * 1000L
 
         // 1. IDEA Note (Tier 2, Sorted)
@@ -90,12 +95,13 @@ object DebugSeedData {
                 status = NoteStatus.NEEDS_REVIEW.name
             )
         )
+        val electricianDueAtEpochMs = PlatformDateParser.parseDueAtEpochMs("by Friday at 5pm", clock)
         dao.insertActions(
             listOf(
                 ActionItem(
                     noteId = taskNoteId,
                     text = "Call electrician about kitchen wiring",
-                    dueAtEpochMs = now + (2 * dayMs),
+                    dueAtEpochMs = electricianDueAtEpochMs,
                     done = false
                 ),
                 ActionItem(

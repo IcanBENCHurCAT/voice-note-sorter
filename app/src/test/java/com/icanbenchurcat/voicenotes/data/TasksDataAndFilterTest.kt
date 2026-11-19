@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -130,5 +132,62 @@ class TasksDataAndFilterTest {
         }
         assertEquals(1, completed.size)
         assertEquals(listOf(2L), completed.map { it.id })
+    }
+
+    @Test
+    fun insertUpdateAndDeleteActionItem_crudPersistsCorrectly() = runBlocking {
+        val noteId = dao.insert(
+            Note(
+                createdAtEpochMs = 1000L,
+                audioPath = "path/1.m4a",
+                title = "Kitchen Electrical"
+            )
+        )
+
+        val initialDue = 1_795_298_800_000L // 2026-11-20 17:00 UTC-ish
+        val insertedId = dao.insertAction(
+            ActionItem(
+                noteId = noteId,
+                text = "Call electrician",
+                dueAtEpochMs = initialDue,
+                done = false
+            )
+        )
+        val siblingId = dao.insertAction(
+            ActionItem(
+                noteId = noteId,
+                text = "Buy 14-gauge copper wire",
+                dueAtEpochMs = null,
+                done = true
+            )
+        )
+
+        val fetched = dao.actionById(insertedId)
+        assertNotNull(fetched)
+        assertEquals("Call electrician", fetched?.text)
+        assertEquals(initialDue, fetched?.dueAtEpochMs)
+        assertFalse(fetched!!.done)
+
+        // Update text and due date/time while preserving done status
+        dao.updateActionDone(insertedId, true)
+        val updatedDue = initialDue + 3_600_000L
+        dao.updateAction(insertedId, "Call licensed electrician", updatedDue)
+
+        val afterUpdate = dao.actionById(insertedId)
+        assertEquals("Call licensed electrician", afterUpdate?.text)
+        assertEquals(updatedDue, afterUpdate?.dueAtEpochMs)
+        assertTrue(afterUpdate!!.done)
+
+        // Clear due date/time
+        dao.updateAction(insertedId, "Call licensed electrician", null)
+        assertNull(dao.actionById(insertedId)?.dueAtEpochMs)
+
+        // Delete only the target action item
+        dao.deleteActionById(insertedId)
+        assertNull(dao.actionById(insertedId))
+        val remaining = dao.actionsFor(noteId)
+        assertEquals(1, remaining.size)
+        assertEquals(siblingId, remaining.first().id)
+        assertNotNull(dao.byId(noteId))
     }
 }

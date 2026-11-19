@@ -60,6 +60,18 @@ interface NoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertActions(items: List<ActionItem>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAction(item: ActionItem): Long
+
+    @Query("UPDATE action_items SET text = :text, dueAtEpochMs = :dueAtEpochMs WHERE id = :id")
+    suspend fun updateAction(id: Long, text: String, dueAtEpochMs: Long?)
+
+    @Query("DELETE FROM action_items WHERE id = :id")
+    suspend fun deleteActionById(id: Long)
+
+    @Query("SELECT * FROM action_items WHERE id = :id LIMIT 1")
+    suspend fun actionById(id: Long): ActionItem?
+
     @Query("DELETE FROM action_items WHERE noteId = :noteId")
     suspend fun deleteActionsForNote(noteId: Long)
 

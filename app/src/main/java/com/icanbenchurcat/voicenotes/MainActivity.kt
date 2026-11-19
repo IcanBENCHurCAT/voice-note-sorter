@@ -49,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -366,7 +367,8 @@ class MainActivity : ComponentActivity() {
                                             backStack.add(NotesListKey)
                                         }
                                     },
-                                    text = { Text(stringResource(R.string.tab_notes)) }
+                                    text = { Text(stringResource(R.string.tab_notes)) },
+                                    modifier = Modifier.testTag("tab_notes")
                                 )
                                 Tab(
                                     selected = selectedTabIndex == 1,
@@ -386,7 +388,8 @@ class MainActivity : ComponentActivity() {
                                             stringResource(R.string.tab_tasks)
                                         }
                                         Text(label)
-                                    }
+                                    },
+                                    modifier = Modifier.testTag("tab_tasks")
                                 )
                             }
                         }
@@ -515,6 +518,16 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onOpenNote = { noteId ->
                                                 backStack.add(NoteDetailKey(noteId))
+                                            },
+                                            onUpdateTask = { id, text, dueAtEpochMs ->
+                                                scope.launch {
+                                                    dao.updateAction(id, text, dueAtEpochMs)
+                                                }
+                                            },
+                                            onDeleteTask = { id ->
+                                                scope.launch {
+                                                    dao.deleteActionById(id)
+                                                }
                                             }
                                         )
                                     }
@@ -552,6 +565,28 @@ class MainActivity : ComponentActivity() {
                                                 onToggleActionDone = { actionId, done ->
                                                     scope.launch {
                                                         dao.updateActionDone(actionId, done)
+                                                    }
+                                                },
+                                                onAddAction = { text, dueAtEpochMs ->
+                                                    scope.launch {
+                                                        dao.insertAction(
+                                                            ActionItem(
+                                                                noteId = note.id,
+                                                                text = text,
+                                                                dueAtEpochMs = dueAtEpochMs,
+                                                                done = false
+                                                            )
+                                                        )
+                                                    }
+                                                },
+                                                onUpdateAction = { actionId, text, dueAtEpochMs ->
+                                                    scope.launch {
+                                                        dao.updateAction(actionId, text, dueAtEpochMs)
+                                                    }
+                                                },
+                                                onDeleteAction = { actionId ->
+                                                    scope.launch {
+                                                        dao.deleteActionById(actionId)
                                                     }
                                                 },
                                                 onDeleteNote = {

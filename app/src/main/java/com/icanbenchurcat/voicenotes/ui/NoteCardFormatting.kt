@@ -5,8 +5,16 @@ package com.icanbenchurcat.voicenotes.ui
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.data.Bucket
 import java.text.SimpleDateFormat
+import java.time.Clock
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 object NoteCardFormatting {
 
@@ -66,12 +74,116 @@ object NoteCardFormatting {
     }
 
     /**
-     * Formats a due date epoch timestamp in milliseconds for task items.
+     * Formats a due date epoch timestamp in milliseconds for task items across
+     * both NoteDetailScreen and TasksScreen.
      */
-    fun formatDueDate(dueAtEpochMs: Long): String {
+    fun formatDueDate(dueAtEpochMs: Long): String =
+        formatDueDate(dueAtEpochMs, Locale.getDefault(), TimeZone.getDefault())
+
+    internal fun formatDueDate(
+        dueAtEpochMs: Long,
+        locale: Locale,
+        timeZone: TimeZone
+    ): String {
         if (dueAtEpochMs <= 0L) return ""
-        val format = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+        val format = SimpleDateFormat("MMM d, h:mm a", locale).apply {
+            this.timeZone = timeZone
+        }
         return format.format(Date(dueAtEpochMs))
+    }
+
+    /**
+     * Formats the calendar date portion of a due timestamp for picker buttons.
+     */
+    fun formatDueDateOnly(dueAtEpochMs: Long): String =
+        formatDueDateOnly(dueAtEpochMs, Locale.getDefault(), TimeZone.getDefault())
+
+    internal fun formatDueDateOnly(
+        dueAtEpochMs: Long,
+        locale: Locale,
+        timeZone: TimeZone
+    ): String {
+        if (dueAtEpochMs <= 0L) return ""
+        val format = SimpleDateFormat("MMM d, yyyy", locale).apply {
+            this.timeZone = timeZone
+        }
+        return format.format(Date(dueAtEpochMs))
+    }
+
+    /**
+     * Formats the time-of-day portion of a due timestamp for picker buttons.
+     */
+    fun formatDueTimeOnly(dueAtEpochMs: Long): String =
+        formatDueTimeOnly(dueAtEpochMs, Locale.getDefault(), TimeZone.getDefault())
+
+    internal fun formatDueTimeOnly(
+        dueAtEpochMs: Long,
+        locale: Locale,
+        timeZone: TimeZone
+    ): String {
+        if (dueAtEpochMs <= 0L) return ""
+        val format = SimpleDateFormat("h:mm a", locale).apply {
+            this.timeZone = timeZone
+        }
+        return format.format(Date(dueAtEpochMs))
+    }
+
+    /**
+     * Converts a local-zone due epoch timestamp (or today if unset) into the
+     * UTC midnight milliseconds expected by Material 3 `DatePickerState`.
+     */
+    fun toDatePickerInitialUtcMillis(
+        dueAtEpochMs: Long?,
+        clock: Clock = Clock.systemDefaultZone()
+    ): Long {
+        val localDate = dueAtEpochMs
+            ?.takeIf { it > 0L }
+            ?.let { Instant.ofEpochMilli(it).atZone(clock.zone).toLocalDate() }
+            ?: LocalDate.now(clock)
+        return localDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    }
+
+    /**
+     * Applies a UTC midnight date selection from Material 3 `DatePickerState`
+     * while preserving any previously chosen local time (or 9:00 AM by default).
+     */
+    fun mergePickedDate(
+        existingDueAtEpochMs: Long?,
+        utcSelectedDateMillis: Long,
+        zone: ZoneId = ZoneId.systemDefault()
+    ): Long {
+        val pickedDate = Instant.ofEpochMilli(utcSelectedDateMillis)
+            .atZone(ZoneOffset.UTC)
+            .toLocalDate()
+        val preservedTime = existingDueAtEpochMs
+            ?.takeIf { it > 0L }
+            ?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalTime() }
+            ?: LocalTime.of(9, 0)
+        return LocalDateTime.of(pickedDate, preservedTime)
+            .atZone(zone)
+            .toInstant()
+            .toEpochMilli()
+    }
+
+    /**
+     * Applies a local hour/minute selection from Material 3 `TimePickerState`
+     * while preserving any previously chosen local date (or today by default).
+     */
+    fun mergePickedTime(
+        existingDueAtEpochMs: Long?,
+        hour: Int,
+        minute: Int,
+        clock: Clock = Clock.systemDefaultZone()
+    ): Long {
+        val baseDate = existingDueAtEpochMs
+            ?.takeIf { it > 0L }
+            ?.let { Instant.ofEpochMilli(it).atZone(clock.zone).toLocalDate() }
+            ?: LocalDate.now(clock)
+        val pickedTime = LocalTime.of(hour, minute)
+        return LocalDateTime.of(baseDate, pickedTime)
+            .atZone(clock.zone)
+            .toInstant()
+            .toEpochMilli()
     }
 
     /**

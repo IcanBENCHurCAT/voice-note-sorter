@@ -277,4 +277,55 @@ class HeuristicActionAndSummaryTest {
         )
         assertEquals("Renew the studio lease before Friday", prefixedSentence.title)
     }
+
+    @Test
+    fun platformDateParser_parsesByFridayAt5pmConsistentlyAcrossWeekdays() {
+        // Wednesday 2026-11-18 06:44 UTC -> Friday 2026-11-20 17:00 UTC
+        val wedMorningClock = Clock.fixed(
+            LocalDateTime.of(2026, 11, 18, 6, 44, 0).atZone(zone).toInstant(),
+            zone
+        )
+        val wedParsed = PlatformDateParser.parseDueAtEpochMs("by Friday at 5pm", wedMorningClock)
+        assertNotNull(wedParsed)
+        assertEquals(
+            LocalDateTime.of(2026, 11, 20, 17, 0),
+            LocalDateTime.ofInstant(Instant.ofEpochMilli(wedParsed!!), zone)
+        )
+
+        val fullSentenceParsed = PlatformDateParser.parseDueAtEpochMs(
+            "Remember to call the electrician about the kitchen wiring by Friday at 5pm",
+            wedMorningClock
+        )
+        assertEquals(wedParsed, fullSentenceParsed)
+
+        // Friday 2026-11-20 06:44 UTC -> same-day Friday 2026-11-20 17:00 UTC (not yet passed)
+        val friMorningClock = Clock.fixed(
+            LocalDateTime.of(2026, 11, 20, 6, 44, 0).atZone(zone).toInstant(),
+            zone
+        )
+        val friMorningParsed = PlatformDateParser.parseDueAtEpochMs("by Friday at 5pm", friMorningClock)
+        assertNotNull(friMorningParsed)
+        assertEquals(
+            LocalDateTime.of(2026, 11, 20, 17, 0),
+            LocalDateTime.ofInstant(Instant.ofEpochMilli(friMorningParsed!!), zone)
+        )
+
+        // Friday 2026-11-20 18:00 UTC -> next Friday 2026-11-27 17:00 UTC (already past 5pm)
+        val friEveningClock = Clock.fixed(
+            LocalDateTime.of(2026, 11, 20, 18, 0, 0).atZone(zone).toInstant(),
+            zone
+        )
+        val friEveningParsed = PlatformDateParser.parseDueAtEpochMs("by Friday at 5pm", friEveningClock)
+        assertNotNull(friEveningParsed)
+        assertEquals(
+            LocalDateTime.of(2026, 11, 27, 17, 0),
+            LocalDateTime.ofInstant(Instant.ofEpochMilli(friEveningParsed!!), zone)
+        )
+
+        // Variants: dotted p.m. and missing "at"
+        val dottedPm = PlatformDateParser.parseDueAtEpochMs("by Friday at 5 p.m.", wedMorningClock)
+        assertEquals(wedParsed, dottedPm)
+        val compactPm = PlatformDateParser.parseDueAtEpochMs("by Friday 5pm", wedMorningClock)
+        assertEquals(wedParsed, compactPm)
+    }
 }

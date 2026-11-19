@@ -542,7 +542,7 @@ object PlatformDateParser {
     private val isoDateRegex = Regex("\\b(\\d{4})-(\\d{2})-(\\d{2})\\b")
 
     private val explicitTimeRegex = Regex(
-        "\\b(?:at|by|before)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm|a\\.m\\.|p\\.m\\.)?\\b|\\b(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm|a\\.m\\.|p\\.m\\.)\\b",
+        "\\b(?:at|by|before)\\s+(\\d{1,2})(?::(\\d{2}))?(?:\\s*(am|pm|a\\.m\\.|p\\.m\\.)(?![a-z0-9])|\\b)|\\b(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm|a\\.m\\.|p\\.m\\.)(?![a-z0-9])",
         RegexOption.IGNORE_CASE
     )
 
@@ -554,6 +554,7 @@ object PlatformDateParser {
 
         var resolvedDate: LocalDate? = null
         var explicitHourTime: LocalDateTime? = null
+        val resolvedTime = parseTimeOfDay(lower)
 
         // 1. Relative duration ("in 2 hours", "in 3 days", "in 2 weeks")
         val inMatch = inDurationRegex.find(lower)
@@ -598,7 +599,13 @@ object PlatformDateParser {
                         today.with(TemporalAdjusters.next(targetDow))
                     } else {
                         today.with(TemporalAdjusters.nextOrSame(targetDow)).let { candidate ->
-                            if (candidate == today) today.with(TemporalAdjusters.next(targetDow)) else candidate
+                            if (candidate == today) {
+                                val canUseToday = resolvedTime != null &&
+                                    !LocalDateTime.of(today, resolvedTime).isBefore(now)
+                                if (canUseToday) today else today.with(TemporalAdjusters.next(targetDow))
+                            } else {
+                                candidate
+                            }
                         }
                     }
                 }
@@ -632,7 +639,6 @@ object PlatformDateParser {
             return explicitHourTime.atZone(zone).toInstant().toEpochMilli()
         }
 
-        val resolvedTime = parseTimeOfDay(lower)
         if (resolvedDate == null && resolvedTime != null) {
             // Time-only phrase like "before noon" or "at 3pm" defaults to today (or tomorrow if already past)
             val candidateDateTime = LocalDateTime.of(today, resolvedTime)
