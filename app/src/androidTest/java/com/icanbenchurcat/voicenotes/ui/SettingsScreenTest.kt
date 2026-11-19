@@ -14,8 +14,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.WindowInsets
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -23,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -62,20 +65,25 @@ class SettingsScreenTest {
             )
         }
 
-        // Tier badge in plain language
+        // Tier badge and heading in plain language without technical jargon
+        composeTestRule.onNodeWithText("Current mode").assertIsDisplayed()
         composeTestRule.onNodeWithText("Core sorting").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Active Tier").assertDoesNotExist()
+        composeTestRule.onNodeWithText("deterministic keyword heuristics", substring = true).assertDoesNotExist()
 
-        // Per-capability names and statuses
+        // Per-capability names and non-interactive passive status badge
         composeTestRule.onNodeWithText("Voice Transcription").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Available").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Available")
+            .assertIsDisplayed()
+            .assertHasNoClickAction()
 
         composeTestRule.onNodeWithText("Note Summarisation").assertIsDisplayed()
         composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Action Item Extraction"))
         composeTestRule.onNodeWithText("Action Item Extraction").assertIsDisplayed()
 
-        // Unavailable explanation is shown without upgrade pressure
+        // Unavailable explanation is shown in plain language without upgrade pressure
         composeTestRule.onNodeWithText(
-            "Requires on-device system AI features (AICore) to be present and active."
+            "Automatic summaries require Android's built-in on-device AI service, which isn't active on this device."
         ).assertIsDisplayed()
     }
 
@@ -179,8 +187,9 @@ class SettingsScreenTest {
     }
 
     @Test
-    fun downloadableStatusChip_triggersDownloadCallback_andShowsDownloadableCopy() {
-        var downloadClicked = false
+    fun downloadableCapabilities_showTonalButtonsWithScopedSemantics_andSharedModelBanner() {
+        var summarizerDownloadClicked = false
+        var actionDownloadClicked = false
 
         composeTestRule.setContent {
             SettingsScreen(
@@ -191,13 +200,64 @@ class SettingsScreenTest {
                     actionExtractorStatus = CapabilityStatus.DOWNLOADABLE
                 ),
                 onBack = {},
-                onDownloadSummarizer = { downloadClicked = true }
+                onDownloadSummarizer = { summarizerDownloadClicked = true },
+                onDownloadActionExtractor = { actionDownloadClicked = true }
             )
         }
 
-        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Note Summarisation"))
-        composeTestRule.onAllNodes(hasText("Downloadable"))[0].performClick()
-        assertTrue(downloadClicked)
+        // Passive status badge stays non-interactive
+        composeTestRule.onNodeWithText("Available")
+            .assertIsDisplayed()
+            .assertHasNoClickAction()
+        composeTestRule.onNodeWithText("Downloadable").assertDoesNotExist()
+
+        // Unified shared-model readiness banner clarifies one download enables both
+        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("One download enables both features"))
+        composeTestRule.onNodeWithText("One download enables both features").assertIsDisplayed()
+
+        // Scoped accessible download buttons >= 48dp tall
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasContentDescription("Download model for Note Summarisation"))
+        composeTestRule.onNodeWithContentDescription("Download model for Note Summarisation")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+            .performClick()
+        assertTrue(summarizerDownloadClicked)
+
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasContentDescription("Download model for Action Item Extraction"))
+        composeTestRule.onNodeWithContentDescription("Download model for Action Item Extraction")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+            .performClick()
+        assertTrue(actionDownloadClicked)
+    }
+
+    @Test
+    fun emptyStorage_disablesDeleteAllButton_andShowsReasonCaption() {
+        composeTestRule.setContent {
+            SettingsScreen(
+                uiState = CapabilitySettingsUiState(
+                    tier = Tier.MINIMAL,
+                    storageStats = StorageStats(
+                        audioSizeBytes = 0L,
+                        databaseSizeBytes = 0L,
+                        noteCount = 0
+                    )
+                ),
+                onBack = {}
+            )
+        }
+
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasText("No voice notes or audio recordings to delete."))
+        composeTestRule.onNodeWithContentDescription("Delete all notes and audio")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsNotEnabled()
+        composeTestRule.onNodeWithText("No voice notes or audio recordings to delete.")
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     @Test
@@ -278,7 +338,7 @@ class SettingsScreenTest {
             }
         }
 
-        val subtitleText = "Show database seeding and reset controls on the home screen"
+        val subtitleText = "Show sample data and reset controls on the home screen"
         composeTestRule.onNodeWithTag("settings_list")
             .performScrollToNode(hasText(subtitleText))
 
