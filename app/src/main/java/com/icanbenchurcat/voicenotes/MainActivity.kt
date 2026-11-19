@@ -14,17 +14,29 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -126,6 +138,7 @@ class MainActivity : ComponentActivity() {
 
     private val pendingStartRecording = MutableStateFlow(false)
 
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val db = AppDatabase.get(this)
@@ -280,15 +293,51 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                val currentDestination = backStack.lastOrNull()
+                val isRootTab = currentDestination is NotesListKey || currentDestination is TasksKey
+                val developerTopBarAction: @Composable RowScope.() -> Unit = {
+                    if (isDeveloperModeEnabled) {
+                        DebugSeedToolbar(
+                            db = db,
+                            onReset = {
+                                while (backStack.size > 1) {
+                                    backStack.removeLastOrNull()
+                                }
+                            }
+                        )
+                    }
+                }
+
                 Scaffold(
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                    topBar = {
+                        if (isRootTab) {
+                            TopAppBar(
+                                title = { Text(stringResource(R.string.app_name)) },
+                                actions = {
+                                    developerTopBarAction()
+                                    val settingsDesc = stringResource(R.string.action_settings)
+                                    IconButton(
+                                        onClick = { backStack.add(SettingsKey) },
+                                        modifier = Modifier.semantics { contentDescription = settingsDesc }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Settings,
+                                            contentDescription = null
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                    },
                     floatingActionButton = {
-                        val currentDestination = backStack.lastOrNull()
-                        val isRootTab = currentDestination is NotesListKey || currentDestination is TasksKey
                         if (isRootTab) {
                             val recordDesc = stringResource(R.string.cd_record_fab)
                             FloatingActionButton(
                                 onClick = { triggerCapture() },
-                                modifier = Modifier.semantics { contentDescription = recordDesc }
+                                modifier = Modifier
+                                    .navigationBarsPadding()
+                                    .semantics { contentDescription = recordDesc }
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_tile_record),
@@ -303,30 +352,19 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(padding)
                     ) {
+                        val hasActiveRecording = recordingSessionState is CaptureSessionState.Recording
                         (recordingSessionState as? CaptureSessionState.Recording)?.let { activeSession ->
                             ActiveRecordingBanner(
                                 state = activeSession,
                                 onPause = { captureUseCase.pauseRecording() },
                                 onResume = { captureUseCase.resumeRecording() },
                                 onStop = { captureUseCase.stopRecording() },
-                                onCancel = { captureUseCase.cancelRecording() }
-                            )
-                        }
-
-                        if (isDeveloperModeEnabled) {
-                            DebugSeedToolbar(
-                                db = db,
-                                onReset = {
-                                    while (backStack.size > 1) {
-                                        backStack.removeLastOrNull()
-                                    }
-                                }
+                                onCancel = { captureUseCase.cancelRecording() },
+                                modifier = if (!isRootTab) Modifier.statusBarsPadding() else Modifier
                             )
                         }
 
                         // Top tab navigation for root destinations
-                        val currentDestination = backStack.lastOrNull()
-                        val isRootTab = currentDestination is NotesListKey || currentDestination is TasksKey
                         if (isRootTab) {
                             val selectedTabIndex = if (currentDestination is TasksKey) 1 else 0
                             PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
@@ -365,7 +403,17 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(
+                                    if (!isRootTab && hasActiveRecording) {
+                                        Modifier.consumeWindowInsets(WindowInsets.statusBars)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                        ) {
                             NavDisplay(
                                 backStack = backStack,
                                 onBack = { backStack.removeLastOrNull() },
@@ -468,7 +516,8 @@ class MainActivity : ComponentActivity() {
                                                     deletionCoordinator.deleteAllNotes()
                                                     refreshStorageStats()
                                                 }
-                                            }
+                                            },
+                                            topBarActions = developerTopBarAction
                                         )
                                     }
                                     entry<TasksKey> {
@@ -553,7 +602,8 @@ class MainActivity : ComponentActivity() {
                                                         context.startActivity(chooser)
                                                     }
                                                 },
-                                                onManageBuckets = { showBucketManagementDialog = true }
+                                                onManageBuckets = { showBucketManagementDialog = true },
+                                                developerActions = developerTopBarAction
                                             )
                                         } else {
                                             LaunchedEffect(key.noteId) {
