@@ -10,11 +10,20 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Density
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -295,6 +304,56 @@ class NoteDetailVisualCraftTest {
         composeTestRule.onNodeWithText("Play").assertIsDisplayed()
         composeTestRule.onNodeWithText("0:00").assertIsDisplayed()
         composeTestRule.onNodeWithText("1:05").assertIsDisplayed()
+    }
+
+    @Test
+    fun noteDetail_developerActions_renderedInTopAppBarActionsSlot() {
+        val note = Note(
+            id = 23L,
+            createdAtEpochMs = 1000L,
+            audioPath = "",
+            title = "Dev action test note",
+            transcript = "Testing dev action slot",
+            bucketKind = "NOTE",
+            tierUsed = "CORE",
+            stageStatus = "",
+            status = NoteStatus.SORTED.name
+        )
+        var devClicked = false
+
+        composeTestRule.setContent {
+            NoteDetailScreen(
+                note = note,
+                developerActions = {
+                    IconButton(
+                        onClick = { devClicked = true },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .semantics { contentDescription = "Developer options" }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Build,
+                            contentDescription = null
+                        )
+                    }
+                }
+            )
+        }
+
+        val devAction = composeTestRule.onNodeWithContentDescription("Developer options")
+        devAction.assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+
+        val editBounds = composeTestRule.onNodeWithContentDescription("Edit note").fetchSemanticsNode().boundsInRoot
+        val devBounds = devAction.fetchSemanticsNode().boundsInRoot
+        val editCenterY = (editBounds.top + editBounds.bottom) / 2f
+        val devCenterY = (devBounds.top + devBounds.bottom) / 2f
+        assertTrue(
+            "Expected Developer options aligned in TopAppBar with Edit note, diff=${abs(editCenterY - devCenterY)}",
+            abs(editCenterY - devCenterY) <= 4f
+        )
+
+        devAction.performClick()
+        assertTrue(devClicked)
     }
 
     private fun contrast(a: Color, b: Color): Double {

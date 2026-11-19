@@ -2,6 +2,7 @@
 
 package com.icanbenchurcat.voicenotes
 
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -10,10 +11,10 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
@@ -27,6 +28,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.abs
 
 @RunWith(AndroidJUnit4::class)
 class DebugSeedInstrumentedTest {
@@ -63,6 +65,28 @@ class DebugSeedInstrumentedTest {
         composeRule.onNodeWithText(
             "Tap Record to capture a thought. Everything stays private on this device and sorts automatically into Notes and Tasks."
         ).assertIsDisplayed()
+
+        // Verify Developer options is inside the TopAppBar (not an emoji top strip)
+        assertTrue(composeRule.onAllNodesWithText("🛠").fetchSemanticsNodes().isEmpty())
+        val devNode = composeRule.onNodeWithContentDescription("Developer options")
+        devNode.assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        val titleBounds = composeRule.onNodeWithText("Voice Note Sorter").fetchSemanticsNode().boundsInRoot
+        val devBounds = devNode.fetchSemanticsNode().boundsInRoot
+        val titleCenterY = (titleBounds.top + titleBounds.bottom) / 2f
+        val devCenterY = (devBounds.top + devBounds.bottom) / 2f
+        assertTrue(
+            "Developer options should align inside root TopAppBar",
+            abs(titleCenterY - devCenterY) <= devBounds.height
+        )
+
+        // Verify Developer options appears in Tasks and Settings TopAppBar too
+        composeRule.onNodeWithText("Tasks").performClick()
+        composeRule.onNodeWithContentDescription("Developer options").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Settings").performClick()
+        composeRule.onNodeWithText("Device Capabilities").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Developer options").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Navigate back").performClick()
+        composeRule.onNodeWithText("Notes").performClick()
 
         // 1. Tap 'Seed sample data' via Developer options overflow menu
         composeRule.onNodeWithContentDescription("Developer options").performClick()

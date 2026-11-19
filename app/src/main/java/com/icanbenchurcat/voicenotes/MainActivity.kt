@@ -14,10 +14,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
@@ -136,6 +142,7 @@ class MainActivity : ComponentActivity() {
 
     private val pendingStartRecording = MutableStateFlow(false)
 
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val db = AppDatabase.get(this)
@@ -292,12 +299,26 @@ class MainActivity : ComponentActivity() {
 
                 val currentDestination = backStack.lastOrNull()
                 val isRootTab = currentDestination is NotesListKey || currentDestination is TasksKey
+                val developerTopBarAction: @Composable RowScope.() -> Unit = {
+                    if (isDeveloperModeEnabled) {
+                        DebugSeedToolbar(
+                            db = db,
+                            onReset = {
+                                while (backStack.size > 1) {
+                                    backStack.removeLastOrNull()
+                                }
+                            }
+                        )
+                    }
+                }
 
                 Scaffold(
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
                     topBar = {
                         if (isRootTab) {
                             RootTopAppBar(
-                                onOpenSettings = { backStack.add(SettingsKey) }
+                                onOpenSettings = { backStack.add(SettingsKey) },
+                                developerActions = developerTopBarAction
                             )
                         }
                     },
@@ -306,7 +327,8 @@ class MainActivity : ComponentActivity() {
                             RootRecordFab(
                                 isRecording = recordingSessionState is CaptureSessionState.Recording,
                                 onStartRecording = { triggerCapture() },
-                                onStopRecording = { captureUseCase.stopRecording() }
+                                onStopRecording = { captureUseCase.stopRecording() },
+                                modifier = Modifier.navigationBarsPadding()
                             )
                         }
                     }
@@ -316,24 +338,15 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(padding)
                     ) {
+                        val hasActiveRecording = recordingSessionState is CaptureSessionState.Recording
                         (recordingSessionState as? CaptureSessionState.Recording)?.let { activeSession ->
                             ActiveRecordingBanner(
                                 state = activeSession,
                                 onPause = { captureUseCase.pauseRecording() },
                                 onResume = { captureUseCase.resumeRecording() },
                                 onStop = { captureUseCase.stopRecording() },
-                                onCancel = { captureUseCase.cancelRecording() }
-                            )
-                        }
-
-                        if (isDeveloperModeEnabled) {
-                            DebugSeedToolbar(
-                                db = db,
-                                onReset = {
-                                    while (backStack.size > 1) {
-                                        backStack.removeLastOrNull()
-                                    }
-                                }
+                                onCancel = { captureUseCase.cancelRecording() },
+                                modifier = if (!isRootTab) Modifier.statusBarsPadding() else Modifier
                             )
                         }
 
@@ -376,7 +389,17 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(
+                                    if (!isRootTab && hasActiveRecording) {
+                                        Modifier.consumeWindowInsets(WindowInsets.statusBars)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                        ) {
                             NavDisplay(
                                 backStack = backStack,
                                 onBack = { backStack.removeLastOrNull() },
@@ -477,7 +500,8 @@ class MainActivity : ComponentActivity() {
                                                     deletionCoordinator.deleteAllNotes()
                                                     refreshStorageStats()
                                                 }
-                                            }
+                                            },
+                                            topBarActions = developerTopBarAction
                                         )
                                     }
                                     entry<TasksKey> {
@@ -562,7 +586,8 @@ class MainActivity : ComponentActivity() {
                                                         context.startActivity(chooser)
                                                     }
                                                 },
-                                                onManageBuckets = { showBucketManagementDialog = true }
+                                                onManageBuckets = { showBucketManagementDialog = true },
+                                                developerActions = developerTopBarAction
                                             )
                                         } else {
                                             LaunchedEffect(key.noteId) {
@@ -606,16 +631,18 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RootTopAppBar(
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    developerActions: @Composable RowScope.() -> Unit = {}
 ) {
     TopAppBar(
         title = { Text(stringResource(R.string.app_name)) },
         actions = {
+            developerActions()
             val settingsDesc = stringResource(R.string.action_settings)
             IconButton(
                 onClick = onOpenSettings,
                 modifier = Modifier
-                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .size(48.dp)
                     .semantics { contentDescription = settingsDesc }
             ) {
                 Icon(
@@ -631,7 +658,8 @@ internal fun RootTopAppBar(
 internal fun RootRecordFab(
     isRecording: Boolean,
     onStartRecording: () -> Unit,
-    onStopRecording: () -> Unit
+    onStopRecording: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     if (isRecording) {
         val stopFabDesc = stringResource(R.string.cd_stop_record_fab)
@@ -639,7 +667,7 @@ internal fun RootRecordFab(
             onClick = onStopRecording,
             containerColor = MaterialTheme.colorScheme.error,
             contentColor = MaterialTheme.colorScheme.onError,
-            modifier = Modifier.semantics { contentDescription = stopFabDesc }
+            modifier = modifier.semantics { contentDescription = stopFabDesc }
         ) {
             Icon(
                 painter = painterResource(id = R.drawable.ic_notif_stop),
@@ -654,7 +682,7 @@ internal fun RootRecordFab(
             onClick = onStartRecording,
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier.semantics { contentDescription = recordDesc }
+            modifier = modifier.semantics { contentDescription = recordDesc }
         ) {
             Icon(
                 painter = painterResource(id = R.drawable.ic_tile_record),
