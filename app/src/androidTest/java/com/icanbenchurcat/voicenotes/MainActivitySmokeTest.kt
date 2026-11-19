@@ -2,18 +2,23 @@
 
 package com.icanbenchurcat.voicenotes
 
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteStatus
+import com.icanbenchurcat.voicenotes.data.StorageRetentionManager
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -32,6 +37,13 @@ class MainActivitySmokeTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = AppDatabase.get(context)
         db.clearAllTables()
+        runBlocking {
+            StorageRetentionManager.fromContext(context).setDeveloperModeEnabled(false)
+        }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithContentDescription("Developer options")
+                .fetchSemanticsNodes().isEmpty()
+        }
     }
 
     @Test
@@ -39,8 +51,9 @@ class MainActivitySmokeTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val dao = AppDatabase.get(context).noteDao()
 
-        // 1. Assert the record FAB is present with content description 'Record a note'
+        // 1. Assert the extended record FAB is present with both content description and visible 'Record' label
         composeRule.onNodeWithContentDescription("Record a note").assertIsDisplayed()
+        composeRule.onNodeWithText("Record").assertIsDisplayed()
 
         // 2. Insert a note and assert the notes list renders it
         runBlocking {
@@ -73,8 +86,9 @@ class MainActivitySmokeTest {
         }
 
         composeRule.onNodeWithText("Pick up coffee beans and oat milk on the way home.").assertIsDisplayed()
-        composeRule.onNodeWithText("Transcribe: OK").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Bucket: OK").performScrollTo().assertIsDisplayed()
+        assertEquals(0, composeRule.onAllNodesWithText("Processing status").fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithText("Transcribe: OK").fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithText("Bucket: OK").fetchSemanticsNodes().size)
     }
 
     @Test
@@ -131,10 +145,10 @@ class MainActivitySmokeTest {
         // Open the Needs Review note and change its bucket to NOTE (clearing NEEDS_REVIEW)
         composeRule.onNodeWithText("Courtyard observation").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Confirm filing (INBOX)")
+            composeRule.onAllNodesWithText("Confirm filing in Inbox")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithContentDescription("File in NOTE").performClick()
+        composeRule.onNodeWithContentDescription("File in Notes").performClick()
 
         composeRule.waitUntil(timeoutMillis = 5_000) {
             runBlocking { dao.byId(reviewNoteId)?.status == NoteStatus.SORTED.name }
@@ -142,5 +156,40 @@ class MainActivitySmokeTest {
         val updated = runBlocking { dao.byId(reviewNoteId)!! }
         assertEquals("NOTE", updated.bucketKind)
         assertEquals(NoteStatus.SORTED.name, updated.status)
+    }
+
+    @Test
+    fun rootTabs_shareTopAppBarWithAccessibleSettingsButton_andOpenSettings() {
+        // On Notes tab: shared TopAppBar, >= 48dp Settings IconButton, and plain-language empty state
+        composeRule.onNodeWithText("Voice Note Sorter").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Settings")
+            .assertIsDisplayed()
+            .assertWidthIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(48.dp)
+        composeRule.onNodeWithText("Device capability:", substring = true).assertDoesNotExist()
+        composeRule.onNodeWithText("No voice notes yet").assertIsDisplayed()
+        composeRule.onNodeWithText("Record").assertIsDisplayed()
+
+        // Open Settings from Notes tab and return
+        composeRule.onNodeWithContentDescription("Settings").performClick()
+        composeRule.onNodeWithText("Device Capabilities").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Navigate back").performClick()
+        composeRule.onNodeWithText("No voice notes yet").assertIsDisplayed()
+
+        // Switch to Tasks tab: shared TopAppBar Settings IconButton and Record ExtendedFAB remain visible
+        composeRule.onNodeWithText("Tasks").performClick()
+        composeRule.onNodeWithText("Voice Note Sorter").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Settings")
+            .assertIsDisplayed()
+            .assertWidthIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(48.dp)
+        composeRule.onNodeWithText("Record").assertIsDisplayed()
+
+        // Open Settings from Tasks tab and return to Tasks tab
+        composeRule.onNodeWithContentDescription("Settings").performClick()
+        composeRule.onNodeWithText("Device Capabilities").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Navigate back").performClick()
+        composeRule.onNodeWithText("No tasks yet. Action items extracted from voice notes will appear here.")
+            .assertIsDisplayed()
     }
 }

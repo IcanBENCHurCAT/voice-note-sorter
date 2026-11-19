@@ -7,7 +7,9 @@ import com.icanbenchurcat.voicenotes.ai.BucketAssignment
 import com.icanbenchurcat.voicenotes.ai.BucketProfile
 import com.icanbenchurcat.voicenotes.ai.Bucketer
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
+import com.icanbenchurcat.voicenotes.ai.Embedder
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
+import com.icanbenchurcat.voicenotes.ai.Proofreader
 import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.ai.TitleSummary
@@ -19,6 +21,7 @@ import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.FtsQuerySanitizer
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
+import com.icanbenchurcat.voicenotes.data.NoteEmbedding
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
 import kotlinx.coroutines.flow.Flow
@@ -42,6 +45,26 @@ class FakeTranscriber(
     }
 }
 
+class FakeProofreader(
+    private val currentStatus: CapabilityStatus = CapabilityStatus.AVAILABLE,
+    private val result: String? = null,
+    private val exception: Exception? = null,
+    private val transformer: ((String) -> String)? = null
+) : Proofreader {
+    var calls = 0
+        private set
+    var lastInput: String? = null
+        private set
+
+    override suspend fun status(): CapabilityStatus = currentStatus
+    override suspend fun proofread(rawTranscript: String): String {
+        calls++
+        lastInput = rawTranscript
+        if (exception != null) throw exception
+        return transformer?.invoke(rawTranscript) ?: result ?: rawTranscript
+    }
+}
+
 class FakeSummarizer(
     private val currentStatus: CapabilityStatus = CapabilityStatus.AVAILABLE,
     private val result: TitleSummary = TitleSummary("title", "summary"),
@@ -49,10 +72,13 @@ class FakeSummarizer(
 ) : Summarizer {
     var calls = 0
         private set
+    var lastTranscript: String? = null
+        private set
 
     override suspend fun status(): CapabilityStatus = currentStatus
     override suspend fun summarize(transcript: String): TitleSummary {
         calls++
+        lastTranscript = transcript
         if (exception != null) throw exception
         return result
     }
@@ -65,10 +91,13 @@ class FakeActionExtractor(
 ) : ActionExtractor {
     var calls = 0
         private set
+    var lastTranscript: String? = null
+        private set
 
     override suspend fun status(): CapabilityStatus = currentStatus
     override suspend fun extract(transcript: String): List<ExtractedAction> {
         calls++
+        lastTranscript = transcript
         if (exception != null) throw exception
         return items
     }
@@ -81,13 +110,43 @@ class FakeBucketer(
 ) : Bucketer {
     var calls = 0
         private set
+    var lastTranscript: String? = null
+        private set
 
     override suspend fun status(): CapabilityStatus = currentStatus
 
     override suspend fun assign(transcript: String, profile: BucketProfile): BucketAssignment {
         calls++
+        lastTranscript = transcript
         if (exception != null) throw exception
         return assignment
+    }
+}
+
+class FakeEmbedder(
+    override val modelId: String = "fake-embed-v1",
+    private val currentStatus: CapabilityStatus = CapabilityStatus.AVAILABLE,
+    private val vectorsByText: Map<String, FloatArray> = emptyMap(),
+    private val defaultVector: FloatArray? = floatArrayOf(1.0f, 0.0f, 0.0f),
+    private val statusException: Exception? = null,
+    private val exception: Exception? = null,
+    private val embedderFn: ((String) -> FloatArray?)? = null
+) : Embedder {
+    var calls = 0
+        private set
+    val inputs = mutableListOf<String>()
+
+    override suspend fun status(): CapabilityStatus {
+        if (statusException != null) throw statusException
+        return currentStatus
+    }
+
+    override suspend fun embed(text: String): FloatArray? {
+        calls++
+        inputs += text
+        if (exception != null) throw exception
+        if (embedderFn != null) return embedderFn.invoke(text)
+        return vectorsByText[text] ?: defaultVector
     }
 }
 
@@ -105,6 +164,7 @@ class InMemoryFakeNoteDao : NoteDao {
     private val _bucketsFlow = MutableStateFlow<List<Bucket>>(emptyList())
     private val tags = mutableSetOf<String>()
     private val noteTags = mutableSetOf<NoteTag>()
+    val embeddings = mutableMapOf<Long, NoteEmbedding>()
 
     override suspend fun insert(note: Note): Long {
         val id = if (note.id == 0L) nextNoteId++ else note.id
@@ -280,5 +340,26 @@ class InMemoryFakeNoteDao : NoteDao {
 
     override suspend fun deleteAllNoteRows() {
         notes.clear()
+    }
+
+    override suspend fun upsertEmbedding(embedding: NoteEmbedding) {
+        embeddings[embedding.noteId] = embedding
+    }
+
+    override suspend fun embeddingForNote(noteId: Long): NoteEmbedding? =
+        embeddings[noteId]
+
+    override suspend fun embeddingsForModel(modelId: String): List<NoteEmbedding> =
+        embeddings.values.filter { it.modelId == modelId }
+
+    override fun observeEmbeddingsForModel(modelId: String): Flow<List<NoteEmbedding>> =
+        flowOf(embeddings.values.filter { it.modelId == modelId })
+
+    override suspend fun deleteEmbeddingForNote(noteId: Long) {
+        embeddings.remove(noteId)
+    }
+
+    override suspend fun deleteAllEmbeddings() {
+        embeddings.clear()
     }
 }

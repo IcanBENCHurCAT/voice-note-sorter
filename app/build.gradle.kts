@@ -76,6 +76,7 @@ dependencies {
     implementation(libs.mlkit.genai.speech)
     implementation(libs.mlkit.genai.common)
     implementation(libs.mlkit.genai.prompt)
+    ksp(libs.mlkit.genai.schema.compiler)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

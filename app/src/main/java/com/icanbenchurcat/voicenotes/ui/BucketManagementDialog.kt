@@ -6,13 +6,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -84,24 +89,24 @@ fun BucketManagementDialog(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = bucket.name,
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Text(
-                                    text = bucket.kind,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            OutlinedButton(
+                            Text(
+                                text = bucket.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f)
+                            )
+                            val renameDesc = stringResource(R.string.cd_rename_bucket, bucket.name)
+                            IconButton(
                                 onClick = { editingBucket = bucket },
-                                modifier = Modifier.semantics {
-                                    contentDescription = "Rename ${bucket.name}"
-                                }
+                                modifier = Modifier
+                                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                    .semantics {
+                                        contentDescription = renameDesc
+                                    }
                             ) {
-                                Text(stringResource(R.string.action_rename))
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null
+                                )
                             }
                         }
                     }
@@ -133,7 +138,7 @@ fun BucketManagementDialog(
                 onClick = onDismissRequest,
                 modifier = Modifier.semantics { contentDescription = "Close manage buckets dialog" }
             ) {
-                Text(stringResource(R.string.dialog_cancel))
+                Text(stringResource(R.string.dialog_done))
             }
         }
     )

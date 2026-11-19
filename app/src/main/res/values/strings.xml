@@ -6,6 +6,10 @@
     <string name="channel_sorting">Sorting</string>
     <string name="notif_sorting_title">Sorting your note</string>
     <string name="cd_record_fab">Record a note</string>
+    <string name="action_record">Record</string>
+    <string name="cd_stop_record_fab">Stop active recording</string>
+    <string name="empty_notes_title">No voice notes yet</string>
+    <string name="empty_notes_description">Tap Record to capture a thought. Everything stays private on this device and sorts automatically into Notes and Tasks.</string>
     <string name="cd_widget_record">Record a note</string>
     <string name="cd_note_meta">Filed as %1$s, %2$s</string>
     <string name="cd_note_bucket">Filed as %1$s</string>
@@ -23,6 +27,7 @@
     <string name="dialog_delete_note_message">This permanently deletes the note, its transcript, action items, tags, search index entries, and recorded audio.</string>
     <string name="dialog_delete_confirm">Delete</string>
     <string name="dialog_cancel">Cancel</string>
+    <string name="dialog_done">Done</string>
     <string name="action_edit_note">Edit</string>
     <string name="action_save_note">Save</string>
     <string name="action_cancel_edit">Cancel</string>
@@ -38,6 +43,12 @@
     <string name="bucket_name_label">Bucket name</string>
     <string name="bucket_kind_label">Identifier (optional)</string>
     <string name="action_rename">Rename</string>
+    <string name="cd_rename_bucket">Rename %1$s</string>
+    <string name="action_confirm_filing">Confirm filing in %1$s</string>
+    <string name="snackbar_filing_confirmed">Filed in %1$s</string>
+    <string name="cd_suggested_bucket">Suggested bucket %1$s, tap to confirm filing</string>
+    <string name="cd_file_in_bucket">File in %1$s</string>
+    <string name="suggested_bucket_label">%1$s (Suggested)</string>
     <string name="action_add_bucket">Add bucket</string>
     <string name="action_save">Save</string>
     <string name="max_custom_buckets_reached">Maximum 4 custom buckets reached</string>

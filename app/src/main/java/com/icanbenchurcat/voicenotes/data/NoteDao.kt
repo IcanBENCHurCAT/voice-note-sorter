@@ -143,18 +143,39 @@ interface NoteDao {
     @Query("DELETE FROM notes")
     suspend fun deleteAllNoteRows()
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEmbedding(embedding: NoteEmbedding)
+
+    @Query("SELECT * FROM note_embeddings WHERE noteId = :noteId LIMIT 1")
+    suspend fun embeddingForNote(noteId: Long): NoteEmbedding?
+
+    @Query("SELECT * FROM note_embeddings WHERE modelId = :modelId")
+    suspend fun embeddingsForModel(modelId: String): List<NoteEmbedding>
+
+    @Query("SELECT * FROM note_embeddings WHERE modelId = :modelId")
+    fun observeEmbeddingsForModel(modelId: String): Flow<List<NoteEmbedding>>
+
+    @Query("DELETE FROM note_embeddings WHERE noteId = :noteId")
+    suspend fun deleteEmbeddingForNote(noteId: Long)
+
+    @Query("DELETE FROM note_embeddings")
+    suspend fun deleteAllEmbeddings()
+
     /**
-     * Atomically deletes a note and all associated rows (action items, note tags, and FTS sync).
+     * Atomically deletes a note and all associated rows (action items, note tags,
+     * embeddings, and FTS sync).
      */
     @Transaction
     suspend fun deleteNoteCascade(noteId: Long) {
         deleteActionsForNote(noteId)
         deleteNoteTagsForNote(noteId)
+        deleteEmbeddingForNote(noteId)
         deleteNoteById(noteId)
     }
 
     /**
-     * Atomically deletes all notes, action items, and note tags (and triggers FTS cleanup).
+     * Atomically deletes all notes, action items, note tags, and embeddings
+     * (and triggers FTS cleanup).
      * If [deleteTags] is true, also clears the global tags lookup table.
      */
     @Transaction
@@ -164,6 +185,7 @@ interface NoteDao {
         if (deleteTags) {
             deleteAllTags()
         }
+        deleteAllEmbeddings()
         deleteAllNoteRows()
     }
 }
