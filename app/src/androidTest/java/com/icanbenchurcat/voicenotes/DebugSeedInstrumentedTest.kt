@@ -55,11 +55,14 @@ class DebugSeedInstrumentedTest {
         val dao = AppDatabase.get(context).noteDao()
 
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("No voice notes yet. Tap Record to capture a thought.")
+            composeRule.onAllNodesWithText("No voice notes yet")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithText("No voice notes yet. Tap Record to capture a thought.")
+        composeRule.onNodeWithText("No voice notes yet")
             .assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "Tap Record to capture a thought. Everything stays private on this device and sorts automatically into Notes and Tasks."
+        ).assertIsDisplayed()
 
         // 1. Tap 'Seed sample data' via Developer options overflow menu
         composeRule.onNodeWithContentDescription("Developer options").performClick()

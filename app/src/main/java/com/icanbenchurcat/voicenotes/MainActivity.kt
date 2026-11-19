@@ -14,17 +14,24 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,6 +45,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.navigation3.runtime.NavKey
@@ -280,21 +288,24 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                val currentDestination = backStack.lastOrNull()
+                val isRootTab = currentDestination is NotesListKey || currentDestination is TasksKey
+
                 Scaffold(
-                    floatingActionButton = {
-                        val currentDestination = backStack.lastOrNull()
-                        val isRootTab = currentDestination is NotesListKey || currentDestination is TasksKey
+                    topBar = {
                         if (isRootTab) {
-                            val recordDesc = stringResource(R.string.cd_record_fab)
-                            FloatingActionButton(
-                                onClick = { triggerCapture() },
-                                modifier = Modifier.semantics { contentDescription = recordDesc }
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_tile_record),
-                                    contentDescription = null
-                                )
-                            }
+                            RootTopAppBar(
+                                onOpenSettings = { backStack.add(SettingsKey) }
+                            )
+                        }
+                    },
+                    floatingActionButton = {
+                        if (isRootTab) {
+                            RootRecordFab(
+                                isRecording = recordingSessionState is CaptureSessionState.Recording,
+                                onStartRecording = { triggerCapture() },
+                                onStopRecording = { captureUseCase.stopRecording() }
+                            )
                         }
                     }
                 ) { padding ->
@@ -325,8 +336,6 @@ class MainActivity : ComponentActivity() {
                         }
 
                         // Top tab navigation for root destinations
-                        val currentDestination = backStack.lastOrNull()
-                        val isRootTab = currentDestination is NotesListKey || currentDestination is TasksKey
                         if (isRootTab) {
                             val selectedTabIndex = if (currentDestination is TasksKey) 1 else 0
                             PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
@@ -376,13 +385,11 @@ class MainActivity : ComponentActivity() {
                                             notes = notes,
                                             searchQuery = searchQuery,
                                             onSearchQueryChange = vm::onSearchQueryChange,
-                                            deviceTier = deviceTier,
                                             buckets = buckets,
                                             tasks = tasks,
                                             tags = allTags.map { it.name },
                                             noteTags = allNoteTags,
-                                            onManageBuckets = { showBucketManagementDialog = true },
-                                            onOpenSettings = { backStack.add(SettingsKey) }
+                                            onManageBuckets = { showBucketManagementDialog = true }
                                         ) { note ->
                                             backStack.add(NoteDetailKey(note.id))
                                         }
@@ -591,5 +598,68 @@ class MainActivity : ComponentActivity() {
             }
             return false
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun RootTopAppBar(
+    onOpenSettings: () -> Unit
+) {
+    TopAppBar(
+        title = { Text(stringResource(R.string.app_name)) },
+        actions = {
+            val settingsDesc = stringResource(R.string.action_settings)
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = settingsDesc }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = null
+                )
+            }
+        }
+    )
+}
+
+@Composable
+internal fun RootRecordFab(
+    isRecording: Boolean,
+    onStartRecording: () -> Unit,
+    onStopRecording: () -> Unit
+) {
+    if (isRecording) {
+        val stopFabDesc = stringResource(R.string.cd_stop_record_fab)
+        ExtendedFloatingActionButton(
+            onClick = onStopRecording,
+            icon = {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_notif_stop),
+                    contentDescription = null
+                )
+            },
+            text = { Text(stringResource(R.string.action_stop_recording)) },
+            containerColor = MaterialTheme.colorScheme.error,
+            contentColor = MaterialTheme.colorScheme.onError,
+            modifier = Modifier.semantics { contentDescription = stopFabDesc }
+        )
+    } else {
+        val recordDesc = stringResource(R.string.cd_record_fab)
+        ExtendedFloatingActionButton(
+            onClick = onStartRecording,
+            icon = {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_tile_record),
+                    contentDescription = null
+                )
+            },
+            text = { Text(stringResource(R.string.action_record)) },
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.semantics { contentDescription = recordDesc }
+        )
     }
 }
