@@ -4,6 +4,7 @@ package com.icanbenchurcat.voicenotes.ai
 
 import com.icanbenchurcat.voicenotes.fixtures.FakeActionExtractor
 import com.icanbenchurcat.voicenotes.fixtures.FakeBucketer
+import com.icanbenchurcat.voicenotes.fixtures.FakeProofreader
 import com.icanbenchurcat.voicenotes.fixtures.FakeSummarizer
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -706,5 +707,137 @@ class GenerativeAiTest {
         } finally {
             session.close()
         }
+    }
+
+    @Test
+    fun nanoProofreader_available_cleansTranscriptAndPreservesFactsNamesAndNumbers() = runTest {
+        val rawTranscript = "remind me to call dr chen at 3 30 pm about invoice 4812 for $1250"
+        val client = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            response = """
+                ```
+                PROOFREAD: "Remind me to call Dr. Chen at 3:30 PM about invoice 4812 for $1,250."
+                ```
+            """.trimIndent()
+        )
+        val fallback = FakeProofreader(result = "fallback output")
+        val proofreader = NanoProofreader(promptClient = client, fallback = fallback)
+
+        assertEquals(CapabilityStatus.AVAILABLE, proofreader.status())
+
+        val (cleaned, tier) = proofreader.proofreadWithTier(rawTranscript)
+        assertEquals(Tier.FULL, tier)
+        assertEquals(1, client.generateCalls)
+        assertEquals(0, fallback.calls)
+        assertEquals("Remind me to call Dr. Chen at 3:30 PM about invoice 4812 for $1,250.", cleaned)
+        assertTrue(client.lastPrompt!!.contains("Preserve all facts, names, dates, times, numbers"))
+        assertTrue(client.lastPrompt!!.contains(rawTranscript))
+
+        // Unlabeled direct prose response is also accepted
+        val plainClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            response = "Remind me to call Dr. Chen at 3:30 PM about invoice 4812 for $1,250."
+        )
+        val plainProofreader = NanoProofreader(promptClient = plainClient, fallback = fallback)
+        assertEquals(
+            "Remind me to call Dr. Chen at 3:30 PM about invoice 4812 for $1,250.",
+            plainProofreader.proofread(rawTranscript)
+        )
+    }
+
+    @Test
+    fun nanoProofreader_unavailableOrDownloadable_demotesToDeterministicFallback() = runTest {
+        val raw = "  buy oat milk and call sarah  "
+        for (status in listOf(CapabilityStatus.UNAVAILABLE, CapabilityStatus.DOWNLOADABLE)) {
+            val client = FakeGenAiPromptClient(currentStatus = status)
+            val fallback = DeterministicTranscriptCleaner()
+            val proofreader = NanoProofreader(promptClient = client, fallback = fallback)
+
+            assertEquals(status, proofreader.status())
+            val (cleaned, tier) = proofreader.proofreadWithTier(raw)
+            assertEquals(Tier.CORE, tier)
+            assertEquals("Buy oat milk and call sarah.", cleaned)
+            assertEquals(0, client.generateCalls)
+        }
+    }
+
+    @Test
+    fun nanoProofreader_blankOrUnusableOrAlteredNumberOutput_demotesToFallback() = runTest {
+        val rawWithNumbers = "call dr chen tomorrow at 2pm about invoice 4812 for $1250 and 15 bolts"
+        val unusableOutputs = listOf(
+            "",
+            "   ",
+            "```\n\n```",
+            "...",
+            "PROOFREAD:   ",
+            "Sorry, I cannot comply with that request.",
+            "I'm unable to proofread this voice note.",
+            "As an AI language model, I cannot process this.",
+            // Altered / dropped numbers must demote to preserve facts
+            "PROOFREAD: Call Dr. Chen tomorrow at 2pm about invoice 4819 for $1,250 and 15 bolts.",
+            "PROOFREAD: Call Dr. Chen tomorrow at 2pm about invoice 4812.",
+            // Severely truncated output (< 1/4 length for >= 40 chars)
+            "PROOFREAD: Call Chen."
+        )
+
+        for (badOutput in unusableOutputs) {
+            val client = FakeGenAiPromptClient(
+                currentStatus = CapabilityStatus.AVAILABLE,
+                response = badOutput
+            )
+            val fallback = FakeProofreader(result = "Deterministic fallback result.")
+            val proofreader = NanoProofreader(promptClient = client, fallback = fallback)
+
+            val (result, tier) = proofreader.proofreadWithTier(rawWithNumbers)
+            assertEquals("Expected fallback for bad output '$badOutput'", Tier.CORE, tier)
+            assertEquals("Deterministic fallback result.", result)
+            assertEquals(1, client.generateCalls)
+            assertEquals(1, fallback.calls)
+        }
+    }
+
+    @Test
+    fun nanoProofreader_busy_throwsCapabilityBusyExceptionWithoutCallingFallback() = runTest {
+        val busyStatusClient = FakeGenAiPromptClient(currentStatus = CapabilityStatus.BUSY)
+        val fallback = FakeProofreader(result = "fallback")
+        val busyStatusProofreader = NanoProofreader(promptClient = busyStatusClient, fallback = fallback)
+
+        assertEquals(CapabilityStatus.BUSY, busyStatusProofreader.status())
+        try {
+            busyStatusProofreader.proofread("buy milk")
+            fail("Expected CapabilityBusyException when status is BUSY")
+        } catch (_: CapabilityBusyException) {
+            // Expected
+        }
+        assertEquals(0, busyStatusClient.generateCalls)
+        assertEquals(0, fallback.calls)
+
+        val busyGenerateClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            generateException = CapabilityBusyException()
+        )
+        val busyGenerateProofreader = NanoProofreader(promptClient = busyGenerateClient, fallback = fallback)
+        try {
+            busyGenerateProofreader.proofread("buy milk")
+            fail("Expected CapabilityBusyException when generateText throws BUSY")
+        } catch (_: CapabilityBusyException) {
+            // Expected
+        }
+        assertEquals(1, busyGenerateClient.generateCalls)
+        assertEquals(0, fallback.calls)
+    }
+
+    @Test
+    fun nanoProofreader_blankInput_returnsEmptyWithoutCallingPromptClient() = runTest {
+        val client = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            response = "Should not be called"
+        )
+        val proofreader = NanoProofreader(promptClient = client)
+
+        val (result, tier) = proofreader.proofreadWithTier("   ")
+        assertEquals("", result)
+        assertEquals(Tier.CORE, tier)
+        assertEquals(0, client.generateCalls)
     }
 }

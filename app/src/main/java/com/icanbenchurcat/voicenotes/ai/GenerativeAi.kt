@@ -56,7 +56,7 @@ interface GenAiPromptSession : AutoCloseable {
 
 /**
  * Seam over the ML Kit GenAI Prompt API so [NanoSummarizer],
- * [NanoActionExtractor], and [NanoBucketer] can be deterministically
+ * [NanoActionExtractor], [NanoBucketer], and [NanoProofreader] can be deterministically
  * unit-tested across AVAILABLE, DOWNLOADABLE, UNAVAILABLE, and BUSY
  * outcomes without requiring AICore hardware.
  */
@@ -64,6 +64,8 @@ interface GenAiPromptClient {
     suspend fun checkStatus(): CapabilityStatus
     suspend fun generateText(prompt: String): String
     suspend fun generateText(request: PromptRequest): String = generateText(request.prompt)
+    suspend fun generateText(prompt: String, maxOutputTokens: Int): String =
+        generateText(PromptRequest(prompt = prompt, maxOutputTokens = maxOutputTokens))
     suspend fun <T : Any> generateTyped(request: PromptRequest, outputClass: KClass<T>): T? = null
     suspend fun isStructuredOutputAvailable(): Boolean = false
     suspend fun isSystemPromptAvailable(): Boolean = false
@@ -460,6 +462,193 @@ private suspend fun <Typed : Any, Out> executePromptLadder(
         ownedSession?.let { runCatching { it.close() } }
     }
 }
+
+/**
+ * Tier 3 transcript proofreader v1 backed by Gemini Nano via
+ * [GenAiPromptClient] (Prompt API path only; adopting
+ * `com.google.mlkit:genai-proofreading` awaits physical hardware verification
+ * in #147).
+ *
+ * Strictly preserves facts, names, dates, and numbers; demotes to [fallback]
+ * ([DeterministicTranscriptCleaner]) when UNAVAILABLE, DOWNLOADABLE, or when
+ * the model returns blank or unusable output, and throws
+ * [CapabilityBusyException] on BUSY/quota so `SortingWorker` logs demotion and
+ * falls back cleanly.
+ */
+class NanoProofreader(
+    private val promptClient: GenAiPromptClient = MlKitGenAiPromptClient,
+    private val fallback: Proofreader = DeterministicTranscriptCleaner()
+) : Proofreader {
+
+    override suspend fun status(): CapabilityStatus = promptClient.checkStatus()
+
+    override suspend fun proofread(rawTranscript: String): String =
+        proofreadWithTier(rawTranscript).first
+
+    internal suspend fun proofreadWithTier(rawTranscript: String): Pair<String, Tier> {
+        val trimmed = rawTranscript.trim()
+        if (trimmed.isEmpty()) {
+            return fallback.proofread(rawTranscript) to Tier.CORE
+        }
+
+        when (promptClient.checkStatus()) {
+            CapabilityStatus.AVAILABLE -> Unit
+            CapabilityStatus.BUSY -> throw CapabilityBusyException()
+            CapabilityStatus.DOWNLOADABLE, CapabilityStatus.UNAVAILABLE -> {
+                CapabilityProbe.logDemotion("proofreader", Tier.FULL, Tier.CORE)
+                return fallback.proofread(rawTranscript) to Tier.CORE
+            }
+        }
+
+        if (trimmed.length > MAX_PROMPT_TRANSCRIPT_CHARS) {
+            CapabilityProbe.logDemotion("proofreader", Tier.FULL, Tier.CORE)
+            return fallback.proofread(rawTranscript) to Tier.CORE
+        }
+
+        val raw = promptClient.generateText(buildPrompt(trimmed), MAX_PROOFREAD_OUTPUT_TOKENS)
+        val parsed = parseResponse(raw, trimmed)
+        if (parsed == null) {
+            CapabilityProbe.logDemotion("proofreader", Tier.FULL, Tier.CORE)
+            return fallback.proofread(rawTranscript) to Tier.CORE
+        }
+        return parsed to Tier.FULL
+    }
+
+    companion object {
+        internal const val MAX_PROMPT_TRANSCRIPT_CHARS = 8000
+        private const val MAX_PROOFREAD_OUTPUT_TOKENS = 1024
+
+        private val preambleLineRegex = Regex(
+            "^(?:here(?:'s| is)\\s+the\\s+(?:proofread|corrected)\\s+(?:transcript|text)\\s*:?)$",
+            RegexOption.IGNORE_CASE
+        )
+        private val proofreadLabelRegex = Regex(
+            "^(?:\\*\\*)?(?:PROOFREAD(?:\\s+TRANSCRIPT)?|CORRECTED(?:\\s+TRANSCRIPT)?)(?:\\*\\*)?\\s*:\\s*(?:\\*\\*)?\\s*",
+            RegexOption.IGNORE_CASE
+        )
+        private val refusalPhrases = listOf(
+            "sorry, i cannot",
+            "sorry, i can't",
+            "i cannot comply",
+            "i cannot help",
+            "i cannot fulfill",
+            "i cannot assist",
+            "i cannot proofread",
+            "i cannot process",
+            "i can't comply",
+            "i can't help",
+            "i can't assist",
+            "i can't proofread",
+            "i am unable to",
+            "i'm unable to",
+            "as an ai",
+            "i apologize"
+        )
+        private val thousandsCommaRegex = Regex("(?<=\\d),(?=\\d{3}\\b)")
+        private val digitTokenRegex = Regex("\\d+")
+
+        internal fun buildPrompt(rawTranscript: String): String {
+            val bounded = rawTranscript.trim()
+            return buildString {
+                appendLine("Proofread this raw voice note transcript by adding proper punctuation, capitalization, and fixing obvious speech-to-text grammar errors.")
+                appendLine("Strict rules:")
+                appendLine("- Preserve all facts, names, dates, times, numbers, and speaker intent verbatim.")
+                appendLine("- Do not summarize, omit sentences, or add commentary or new information.")
+                appendLine("Respond in one line using this exact format:")
+                appendLine("PROOFREAD: <proofread transcript>")
+                appendLine()
+                appendLine("Transcript:")
+                append(bounded)
+            }
+        }
+
+        internal fun parseResponse(raw: String, originalTranscript: String): String? {
+            val strippedFence = stripCodeFences(raw)
+            if (strippedFence.isBlank()) return null
+
+            val lines = strippedFence.trim()
+                .lines()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+            if (lines.isEmpty()) return null
+
+            val withoutPreamble = if (lines.size > 1 && preambleLineRegex.matches(lines.first())) {
+                lines.drop(1).joinToString(" ")
+            } else {
+                lines.joinToString(" ")
+            }
+
+            val withoutLabel = withoutPreamble.replaceFirst(proofreadLabelRegex, "").trim()
+            val originalTrimmed = originalTranscript.trim()
+            val candidate = cleanProofreadText(withoutLabel, originalTrimmed)
+            if (candidate.isBlank() || candidate.none { it.isLetterOrDigit() }) {
+                return null
+            }
+
+            val candidateLower = candidate.lowercase(Locale.ROOT)
+            val originalLower = originalTrimmed.lowercase(Locale.ROOT)
+            if (refusalPhrases.any { phrase ->
+                    candidateLower.startsWith(phrase) && !originalLower.startsWith(phrase)
+                }
+            ) {
+                return null
+            }
+
+            if (!preservesDigitTokens(originalTrimmed, candidate)) {
+                return null
+            }
+
+            if (originalTrimmed.length >= 40 && candidate.length < originalTrimmed.length / 4) {
+                return null
+            }
+            if (candidate.length > originalTrimmed.length * 3 + 60) {
+                return null
+            }
+
+            return candidate
+        }
+
+        private fun cleanProofreadText(raw: String, originalTrimmed: String): String {
+            var text = raw.trim().replace(proseWhitespaceRegex, " ")
+            if (!originalTrimmed.startsWith("**") && !originalTrimmed.endsWith("**")) {
+                text = text.removePrefix("**").removeSuffix("**").trim()
+            }
+            val quotePairs = listOf("\"" to "\"", "'" to "'", "`" to "`")
+            for ((open, close) in quotePairs) {
+                if (text.length >= 2 &&
+                    text.startsWith(open) &&
+                    text.endsWith(close) &&
+                    !(originalTrimmed.startsWith(open) && originalTrimmed.endsWith(close))
+                ) {
+                    text = text.substring(1, text.length - 1).trim()
+                }
+            }
+            return text
+        }
+
+        private fun preservesDigitTokens(original: String, candidate: String): Boolean {
+            val originalTokens = extractDigitTokens(original)
+            if (originalTokens.isEmpty()) return true
+            val candidateTokens = extractDigitTokens(candidate)
+            if (candidateTokens.isEmpty()) return false
+
+            val remaining = candidateTokens.toMutableList()
+            if (originalTokens.all { remaining.remove(it) }) {
+                return true
+            }
+
+            val originalDigitsOnly = original.filter(Char::isDigit)
+            val candidateDigitsOnly = candidate.filter(Char::isDigit)
+            return originalDigitsOnly.isNotEmpty() && originalDigitsOnly == candidateDigitsOnly
+        }
+
+        private fun extractDigitTokens(text: String): List<String> {
+            val normalized = text.replace(thousandsCommaRegex, "")
+            return digitTokenRegex.findAll(normalized).map { it.value }.toList()
+        }
+    }
+}
+
 
 /**
  * Tier 3 generative summarizer and title generator backed by Gemini Nano

@@ -25,6 +25,15 @@ interface Transcriber {
     suspend fun transcribe(audioPath: String): Transcript
 }
 
+interface Proofreader {
+    suspend fun status(): CapabilityStatus
+    /** Cleans punctuation, capitalization, and grammar of [rawTranscript]
+     *  into a working transcript without altering facts, names, or numbers.
+     *  Throws [CapabilityBusyException] when the backing service asks us to
+     *  back off; the pipeline demotes instead of surfacing an error. */
+    suspend fun proofread(rawTranscript: String): String
+}
+
 interface Summarizer {
     suspend fun status(): CapabilityStatus
     /** Returns a title and a short summary for a transcript. */
