@@ -4,6 +4,7 @@ package com.icanbenchurcat.voicenotes
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -14,6 +15,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteStatus
+import com.icanbenchurcat.voicenotes.data.StorageRetentionManager
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -32,6 +34,13 @@ class MainActivitySmokeTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = AppDatabase.get(context)
         db.clearAllTables()
+        runBlocking {
+            StorageRetentionManager.fromContext(context).setDeveloperModeEnabled(false)
+        }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithContentDescription("Developer options")
+                .fetchSemanticsNodes().isEmpty()
+        }
     }
 
     @Test

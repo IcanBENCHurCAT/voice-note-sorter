@@ -47,6 +47,9 @@ class DebugSeedInstrumentedTest {
     fun tearDown() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         AppDatabase.get(context).clearAllTables()
+        runBlocking {
+            StorageRetentionManager.fromContext(context).setDeveloperModeEnabled(false)
+        }
     }
 
     @Test
