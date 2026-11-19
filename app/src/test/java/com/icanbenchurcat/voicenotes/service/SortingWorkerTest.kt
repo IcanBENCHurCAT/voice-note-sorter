@@ -39,8 +39,10 @@ import com.icanbenchurcat.voicenotes.ai.Transcript
 import com.icanbenchurcat.voicenotes.ai.buildTranscriptPrefix
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.Bucket
+import com.icanbenchurcat.voicenotes.data.EmbeddingCodec
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
+import com.icanbenchurcat.voicenotes.data.NoteEmbedding
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
@@ -151,7 +153,7 @@ class SortingWorkerTest {
         assertEquals("platform transcript", outcome.updatedNote.transcript)
         assertEquals("CORE", outcome.updatedNote.tierUsed)
         assertEquals(
-            "transcribe:BUSY,transcribe_fallback:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:BUSY,transcribe_fallback:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -213,7 +215,7 @@ class SortingWorkerTest {
         assertEquals("platform", outcome.updatedNote.transcript)
         assertEquals("CORE", outcome.updatedNote.tierUsed)
         assertEquals(
-            "transcribe_fallback:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe_fallback:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -297,7 +299,7 @@ class SortingWorkerTest {
         )
 
         assertEquals(
-            "transcribe:OK,summarize:FAILED,actions:FAILED,bucket:OK",
+            "transcribe:OK,summarize:FAILED,actions:FAILED,bucket:OK,embed:SKIPPED",
             outcome1.updatedNote.stageStatus
         )
         assertEquals("TASK", outcome1.updatedNote.bucketKind)
@@ -318,7 +320,7 @@ class SortingWorkerTest {
         )
 
         assertEquals(
-            "transcribe:OK,summarize:OK,actions:OK,bucket:FAILED",
+            "transcribe:OK,summarize:OK,actions:OK,bucket:FAILED,embed:SKIPPED",
             outcome2.updatedNote.stageStatus
         )
         assertEquals("Title", outcome2.updatedNote.title)
@@ -368,8 +370,8 @@ class SortingWorkerTest {
             bucketer = bucketer,
             dao = dao
         )
-        // Verify each of the 4 stages wrote independently to the DAO during the first run
-        assertEquals(4, dao.updateSnapshots.size)
+        // Verify each of the 5 stages wrote independently to the DAO during the first run
+        assertEquals(5, dao.updateSnapshots.size)
 
         val noteAfterRun1 = dao.byId(noteId)!!
         val actionsAfterRun1 = dao.actionsFor(noteId).map { it.copy(id = 0L) }
@@ -607,7 +609,7 @@ class SortingWorkerTest {
         assertEquals("FULL", outcome.updatedNote.tierUsed)
         assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
         assertEquals(
-            "transcribe:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -659,7 +661,7 @@ class SortingWorkerTest {
         assertEquals("TASK", outcome.updatedNote.bucketKind)
         assertEquals("CORE", outcome.updatedNote.tierUsed)
         assertEquals(
-            "transcribe:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -710,7 +712,7 @@ class SortingWorkerTest {
         assertEquals("CORE", outcome.updatedNote.tierUsed)
         assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
         assertEquals(
-            "transcribe:OK,summarize:BUSY,summarize_fallback:OK,actions:BUSY,actions_fallback:OK,bucket:BUSY,bucket_fallback:OK",
+            "transcribe:OK,summarize:BUSY,summarize_fallback:OK,actions:BUSY,actions_fallback:OK,bucket:BUSY,bucket_fallback:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -844,7 +846,223 @@ class SortingWorkerTest {
         assertEquals(1, outcome.extractedActions.size)
         assertEquals("TASK", outcome.updatedNote.bucketKind)
         assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
-        assertEquals("transcribe:OK,summarize:OK,actions:OK,bucket:OK", outcome.updatedNote.stageStatus)
+        assertEquals("transcribe:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED", outcome.updatedNote.stageStatus)
+    }
+
+    @Test
+    fun stage5_noOpEmbedder_recordsEmbedSkipped_andWritesNoEmbedding() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(transcriber = CapabilityStatus.AVAILABLE),
+            dataStore
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Buy milk today.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = ExtractiveSummarizer(),
+            extractor = HeuristicActionExtractor(),
+            bucketer = HeuristicBucketer(),
+            dao = dao
+        )
+
+        assertTrue(outcome.updatedNote.stageStatus.endsWith("embed:SKIPPED"))
+        assertEquals(null, dao.embeddingForNote(noteId))
+    }
+
+    @Test
+    fun stage5_availableEmbedder_computesOverTitleSummaryTranscript_andPersistsEmbedding() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val expectedVector = floatArrayOf(0.6f, 0.8f, 0.0f)
+        val embedder = FakeEmbedder(
+            modelId = "gecko-test-v1",
+            defaultVector = expectedVector
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Transcript body here.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Title One", "Summary One")),
+            extractor = FakeActionExtractor(),
+            bucketer = FakeBucketer(BucketAssignment("NOTE", emptyList(), Tier.CORE)),
+            dao = dao,
+            embedder = embedder
+        )
+
+        assertEquals(1, embedder.calls)
+        assertEquals("Title One\nSummary One\nTranscript body here.", embedder.inputs.single())
+        assertTrue(outcome.updatedNote.stageStatus.endsWith("embed:OK"))
+
+        val stored = dao.embeddingForNote(noteId)
+        assertNotNull(stored)
+        assertEquals(noteId, stored!!.noteId)
+        assertEquals("gecko-test-v1", stored.modelId)
+        assertEquals(3, stored.dimension)
+        val decoded = EmbeddingCodec.decode(stored.vectorBlob, stored.dimension)!!
+        assertEquals(expectedVector.toList(), decoded.toList())
+    }
+
+    @Test
+    fun stage5_availableEmbedder_isIdempotentWhenModelIdMatches_andReEmbedsWhenModelIdChanges() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val embedderV1 = FakeEmbedder(
+            modelId = "embed-v1",
+            defaultVector = floatArrayOf(1.0f, 0.0f)
+        )
+
+        val run1 = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Order coffee beans.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Coffee", "Order coffee beans.")),
+            extractor = FakeActionExtractor(),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("coffee"), Tier.CORE)),
+            dao = dao,
+            embedder = embedderV1
+        )
+        val storedRun1 = dao.embeddingForNote(noteId)!!
+        assertEquals(1, embedderV1.calls)
+        assertEquals("embed-v1", storedRun1.modelId)
+
+        // Second run with the SAME modelId -> idempotent, does not call embedder again
+        val run2 = SortingWorker.executePipeline(
+            note = run1.updatedNote,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Order coffee beans.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Coffee", "Order coffee beans.")),
+            extractor = FakeActionExtractor(),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("coffee"), Tier.CORE)),
+            dao = dao,
+            embedder = embedderV1
+        )
+        val storedRun2 = dao.embeddingForNote(noteId)!!
+        assertEquals(1, embedderV1.calls)
+        assertEquals(run1.updatedNote, run2.updatedNote)
+        assertEquals(storedRun1, storedRun2)
+
+        // Third run with a NEW modelId -> lazily re-embeds and replaces stored row
+        val embedderV2 = FakeEmbedder(
+            modelId = "embed-v2",
+            defaultVector = floatArrayOf(0.0f, 1.0f, 0.5f)
+        )
+        val run3 = SortingWorker.executePipeline(
+            note = run2.updatedNote,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Order coffee beans.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Coffee", "Order coffee beans.")),
+            extractor = FakeActionExtractor(),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("coffee"), Tier.CORE)),
+            dao = dao,
+            embedder = embedderV2
+        )
+        val storedRun3 = dao.embeddingForNote(noteId)!!
+        assertEquals(1, embedderV2.calls)
+        assertTrue(run3.updatedNote.stageStatus.endsWith("embed:OK"))
+        assertEquals("embed-v2", storedRun3.modelId)
+        assertEquals(3, storedRun3.dimension)
+        assertEquals(
+            listOf(0.0f, 1.0f, 0.5f),
+            EmbeddingCodec.decode(storedRun3.vectorBlob, storedRun3.dimension)!!.toList()
+        )
+    }
+
+    @Test
+    fun stage5_embedderBusyOrThrows_recordsHonestStatusWithoutLosingStages1To4() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        // Case 1: embed() throws CapabilityBusyException
+        val busyOutcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Schedule dentist.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Dentist", "Schedule dentist.")),
+            extractor = FakeActionExtractor(items = listOf(ExtractedAction("Schedule dentist"))),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("health"), Tier.CORE)),
+            dao = dao,
+            embedder = FakeEmbedder(exception = CapabilityBusyException())
+        )
+        assertEquals(
+            "transcribe:OK,summarize:OK,actions:OK,bucket:OK,embed:BUSY",
+            busyOutcome.updatedNote.stageStatus
+        )
+        assertEquals("TASK", busyOutcome.updatedNote.bucketKind)
+        assertEquals(NoteStatus.SORTED.name, busyOutcome.updatedNote.status)
+        assertEquals(null, dao.embeddingForNote(noteId))
+
+        // Case 2: status() returns BUSY
+        val statusBusyOutcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Schedule dentist.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Dentist", "Schedule dentist.")),
+            extractor = FakeActionExtractor(items = listOf(ExtractedAction("Schedule dentist"))),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("health"), Tier.CORE)),
+            dao = dao,
+            embedder = FakeEmbedder(currentStatus = CapabilityStatus.BUSY)
+        )
+        assertTrue(statusBusyOutcome.updatedNote.stageStatus.endsWith("embed:BUSY"))
+
+        // Case 3: unexpected RuntimeException -> embed:FAILED, note preserved
+        val failedOutcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript("Schedule dentist.", Tier.CORE)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = FakeSummarizer(result = TitleSummary("Dentist", "Schedule dentist.")),
+            extractor = FakeActionExtractor(items = listOf(ExtractedAction("Schedule dentist"))),
+            bucketer = FakeBucketer(BucketAssignment("TASK", listOf("health"), Tier.CORE)),
+            dao = dao,
+            embedder = FakeEmbedder(exception = IllegalStateException("Model crashed"))
+        )
+        assertTrue(failedOutcome.updatedNote.stageStatus.endsWith("embed:FAILED"))
+        assertEquals("Dentist", failedOutcome.updatedNote.title)
     }
 
     @Test
@@ -1113,7 +1331,7 @@ class SortingWorkerTest {
         assertEquals(proofreadTranscript, bucketer.lastTranscript)
 
         assertEquals(
-            "transcribe:OK,proofread:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:OK,proofread:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
         assertEquals("FULL", outcome.updatedNote.tierUsed)
@@ -1175,7 +1393,7 @@ class SortingWorkerTest {
         assertEquals(expectedWorking, fallbackBucketer.lastTranscript)
         assertEquals("CORE", outcome.updatedNote.tierUsed)
         assertEquals(
-            "transcribe:OK,proofread:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:OK,proofread:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
     }
@@ -1230,7 +1448,7 @@ class SortingWorkerTest {
         assertEquals(expectedFallback, fallbackExtractor.lastTranscript)
         assertEquals(expectedFallback, fallbackBucketer.lastTranscript)
         assertEquals(
-            "transcribe:OK,proofread:BUSY,proofread_fallback:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:OK,proofread:BUSY,proofread_fallback:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
         assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
@@ -1258,7 +1476,7 @@ class SortingWorkerTest {
         assertEquals(rawTranscript, outcome2.updatedNote.transcript)
         assertEquals(expectedFallback, outcome2.workingTranscript)
         assertEquals(
-            "transcribe:OK,proofread:BUSY,proofread_fallback:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:OK,proofread:BUSY,proofread_fallback:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome2.updatedNote.stageStatus
         )
         assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome2.updatedNote.status)
@@ -1302,7 +1520,7 @@ class SortingWorkerTest {
         assertEquals(rawTranscript, extractor.lastTranscript)
         assertEquals(rawTranscript, bucketer.lastTranscript)
         assertEquals(
-            "transcribe:OK,proofread:FAILED,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:OK,proofread:FAILED,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             outcome.updatedNote.stageStatus
         )
         assertEquals(NoteStatus.NEEDS_REVIEW.name, outcome.updatedNote.status)
@@ -1386,7 +1604,7 @@ class SortingWorkerTest {
         assertEquals(2, promptInputs.size)
         assertEquals(promptInputs[0], promptInputs[1])
         assertEquals(
-            "transcribe:OK,proofread:OK,summarize:OK,actions:OK,bucket:OK",
+            "transcribe:OK,proofread:OK,summarize:OK,actions:OK,bucket:OK,embed:SKIPPED",
             noteAfterRun2.stageStatus
         )
     }

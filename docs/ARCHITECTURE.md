@@ -41,7 +41,7 @@ Staged, independently failable, and independently tiered:
    in `#147`) and `DeterministicTranscriptCleaner` on Tier 1/2 (whitespace
    collapse, sentence-initial capitalization, and terminal punctuation without
    altering words). Proofreader output is held as a separate `workingTranscript`
-   consumed by Stages 3-5, leaving `Note.transcript` untouched.
+   consumed by Stages 3-6, leaving `Note.transcript` untouched.
 3. **Title and summarise** - Tier 3 Prompt API (`GenerateTypedContentRequest`
    structured output when supported, automatic plain-text + regex fallback
    otherwise); extractive (`ExtractiveSummarizer`) on Tier 2; timestamp title on Tier 1
@@ -56,7 +56,7 @@ Staged, independently failable, and independently tiered:
    automatic plain-text + regex fallback otherwise); keyword rules
    (`HeuristicBucketer`) below; default bucket is Inbox, never a dead end
    (consumes `workingTranscript`)
-6. **Embed** - planned semantic vectors on Tier 3 (deferred; `NoOpEmbedder` today, search falls back to FTS)
+6. **Embed** - persists semantic vectors (`NoteEmbedding`) behind `Embedder` when `AVAILABLE` (recording `embed:OK`, `embed:BUSY`, `embed:SKIPPED`, or `embed:FAILED`); Open Core ships `NoOpEmbedder` (`embed:SKIPPED`) and search falls back to FTS4 (consumes `workingTranscript`)
 
 When Stages 2–4 run on Tier 3 (`NanoSummarizer`, `NanoActionExtractor`,
 `NanoBucketer`) with a shared `GenAiPromptClient`, `SortingWorker` opens a
@@ -85,6 +85,7 @@ actually got, not the tier the marketing page promised.
 - `ActionItem` - id, noteId, text, dueAt (nullable), done
 - `Tag`, `NoteTag` - free-form labels, many-to-many
 - `NoteFts` - FTS4 table over title, transcript, summary
+- `NoteEmbedding` - `noteId` (PK), `modelId`, `dimension`, `vectorBlob` (little-endian floats), `updatedAtEpochMs`; isolated by `modelId` and deleted atomically in note cascades (`NoteDeletionCoordinator`)
 
 Buckets are configuration, not code: white-label builds swap the default
 bucket set and rules without forking the pipeline.
@@ -95,7 +96,12 @@ Implemented today, in the `ai/` package:
 
 - `Transcriber`, `Proofreader`, `Summarizer`, `ActionExtractor`, `Bucketer`, `Embedder` - the
   capability interfaces; alternative engines can be supplied by an outer
-  module at build time. Note that there is no vector store and no embeddings are persisted; search falls back to FTS.
+  module at build time. Open Core ships `NoOpEmbedder` (`modelId = "noop"`,
+  FTS4 fallback) behind `Embedder`, while Room persists `NoteEmbedding`
+  rows in `note_embeddings` and `DefaultSearchRepository` combines FTS4
+  matches with cosine similarity over rows matching the active
+  `Embedder.modelId` whenever an `Embedder` is `AVAILABLE` (see
+  `docs/adr/0007-local-embeddings-and-hybrid-search.md`).
 - `BucketProfileProvider` - supplies bucket sets and filing rules. This
   is the only downstream seam in use today.
 - `SearchRepository` - interface for performing searches.

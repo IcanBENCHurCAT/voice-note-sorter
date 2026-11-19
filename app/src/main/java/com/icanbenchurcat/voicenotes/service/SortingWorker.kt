@@ -12,6 +12,7 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.ai.DeterministicTranscriptCleaner
+import com.icanbenchurcat.voicenotes.ai.Embedder
 import com.icanbenchurcat.voicenotes.ai.ExtractiveSummarizer
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
 import com.icanbenchurcat.voicenotes.ai.GenAiPromptClient
@@ -23,6 +24,7 @@ import com.icanbenchurcat.voicenotes.ai.NanoBucketer
 import com.icanbenchurcat.voicenotes.ai.NanoProofreader
 import com.icanbenchurcat.voicenotes.ai.NanoSummarizer
 import com.icanbenchurcat.voicenotes.ai.NanoTranscriber
+import com.icanbenchurcat.voicenotes.ai.NoOpEmbedder
 import com.icanbenchurcat.voicenotes.ai.NullTranscriber
 import com.icanbenchurcat.voicenotes.ai.PlatformTranscriber
 import com.icanbenchurcat.voicenotes.ai.Proofreader
@@ -33,8 +35,10 @@ import com.icanbenchurcat.voicenotes.ai.Transcriber
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Bucket
+import com.icanbenchurcat.voicenotes.data.EmbeddingCodec
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteDao
+import com.icanbenchurcat.voicenotes.data.NoteEmbedding
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
@@ -73,7 +77,8 @@ class SortingWorker(
     private val fallbackExtractor: ActionExtractor = HeuristicActionExtractor(),
     private val fallbackBucketer: Bucketer = HeuristicBucketer(),
     private val proofreader: Proofreader? = null,
-    private val fallbackProofreader: Proofreader = DeterministicTranscriptCleaner()
+    private val fallbackProofreader: Proofreader = DeterministicTranscriptCleaner(),
+    private val embedder: Embedder = NoOpEmbedder()
 ) : CoroutineWorker(context, params) {
 
     // Primary constructor for WorkManager
@@ -91,7 +96,8 @@ class SortingWorker(
         fallbackExtractor = HeuristicActionExtractor(),
         fallbackBucketer = HeuristicBucketer(),
         proofreader = proofreaderOverride ?: NanoProofreader(),
-        fallbackProofreader = DeterministicTranscriptCleaner()
+        fallbackProofreader = DeterministicTranscriptCleaner(),
+        embedder = embedderOverride ?: NoOpEmbedder()
     )
 
     override suspend fun doWork(): Result {
@@ -114,7 +120,8 @@ class SortingWorker(
             fallbackBucketer = fallbackBucketer,
             dao = dao,
             proofreader = proofreader,
-            fallbackProofreader = fallbackProofreader
+            fallbackProofreader = fallbackProofreader,
+            embedder = embedder
         )
         return Result.success()
     }
@@ -131,6 +138,9 @@ class SortingWorker(
         @Volatile
         var proofreaderOverride: Proofreader? = null
 
+        @Volatile
+        var embedderOverride: Embedder? = null
+
         suspend fun executePipeline(
             note: Note,
             capabilityProbe: CapabilityProbe,
@@ -146,7 +156,8 @@ class SortingWorker(
             dao: NoteDao? = null,
             promptSession: GenAiPromptSession? = null,
             proofreader: Proofreader? = null,
-            fallbackProofreader: Proofreader = DeterministicTranscriptCleaner()
+            fallbackProofreader: Proofreader = DeterministicTranscriptCleaner(),
+            embedder: Embedder = NoOpEmbedder()
         ): PipelineOutcome {
             val stages = mutableListOf<String>()
             var currentNote = note
@@ -589,7 +600,17 @@ class SortingWorker(
                 }
             }
 
-            // Stage 5 (embed) is Tier 3 / v1.1; FTS is maintained by Room.
+            // Stage 5: embed — compute & persist semantic vector when an Embedder is AVAILABLE,
+            // lazily re-embedding when the persisted modelId differs from the active Embedder.
+            // Embeds the proofread workingTranscript (the Stages 2-4 input), never the raw
+            // Note.transcript, which stays immutable verbatim from Stage 1.
+            currentNote = executeStage5Embed(
+                note = currentNote,
+                workingTranscript = workingTranscript,
+                embedder = embedder,
+                dao = dao,
+                stages = stages
+            )
 
             return PipelineOutcome(
                 updatedNote = currentNote,
@@ -597,6 +618,59 @@ class SortingWorker(
                 tags = persistedTags,
                 workingTranscript = workingTranscript
             )
+        }
+
+        private suspend fun executeStage5Embed(
+            note: Note,
+            workingTranscript: String,
+            embedder: Embedder,
+            dao: NoteDao?,
+            stages: MutableList<String>
+        ): Note {
+            try {
+                when (embedder.status()) {
+                    CapabilityStatus.AVAILABLE -> {
+                        val existing = dao?.embeddingForNote(note.id)
+                        if (existing != null && existing.modelId == embedder.modelId) {
+                            stages += "embed:OK"
+                        } else {
+                            val embedInput = "${note.title}\n${note.summary}\n$workingTranscript"
+                            val vector = embedder.embed(embedInput)
+                            if (vector != null && vector.isNotEmpty()) {
+                                dao?.upsertEmbedding(
+                                    NoteEmbedding(
+                                        noteId = note.id,
+                                        modelId = embedder.modelId,
+                                        dimension = vector.size,
+                                        vectorBlob = EmbeddingCodec.encode(vector),
+                                        updatedAtEpochMs = System.currentTimeMillis()
+                                    )
+                                )
+                                stages += "embed:OK"
+                            } else {
+                                stages += "embed:SKIPPED"
+                            }
+                        }
+                    }
+                    CapabilityStatus.BUSY -> {
+                        CapabilityProbe.logDemotion("embedder", Tier.FULL, Tier.CORE)
+                        stages += "embed:BUSY"
+                    }
+                    CapabilityStatus.UNAVAILABLE, CapabilityStatus.DOWNLOADABLE -> {
+                        stages += "embed:SKIPPED"
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: CapabilityBusyException) {
+                CapabilityProbe.logDemotion("embedder", Tier.FULL, Tier.CORE)
+                stages += "embed:BUSY"
+            } catch (_: Exception) {
+                stages += "embed:FAILED"
+            }
+            val updated = note.copy(stageStatus = stages.joinToString(","))
+            dao?.update(updated)
+            return updated
         }
 
         private fun resolveSharedNanoClient(
