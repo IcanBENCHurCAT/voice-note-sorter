@@ -75,8 +75,12 @@ class RootChromeTest {
     }
 
     @Test
-    fun rootRecordFab_colorsMeetBoundaryAndTextContrastInLightAndDarkThemes() {
+    fun rootRecordFab_colorsMeetBoundaryAndTextContrastInLightTheme() {
         assertThemeFabContrast(darkTheme = false)
+    }
+
+    @Test
+    fun rootRecordFab_colorsMeetBoundaryAndTextContrastInDarkTheme() {
         assertThemeFabContrast(darkTheme = true)
     }
 

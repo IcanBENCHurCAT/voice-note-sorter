@@ -14,9 +14,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -635,31 +637,31 @@ internal fun RootRecordFab(
         val stopFabDesc = stringResource(R.string.cd_stop_record_fab)
         ExtendedFloatingActionButton(
             onClick = onStopRecording,
-            icon = {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_notif_stop),
-                    contentDescription = null
-                )
-            },
-            text = { Text(stringResource(R.string.action_stop_recording)) },
             containerColor = MaterialTheme.colorScheme.error,
             contentColor = MaterialTheme.colorScheme.onError,
             modifier = Modifier.semantics { contentDescription = stopFabDesc }
-        )
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_notif_stop),
+                contentDescription = null
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(stringResource(R.string.action_stop_recording))
+        }
     } else {
         val recordDesc = stringResource(R.string.cd_record_fab)
         ExtendedFloatingActionButton(
             onClick = onStartRecording,
-            icon = {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_tile_record),
-                    contentDescription = null
-                )
-            },
-            text = { Text(stringResource(R.string.action_record)) },
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.semantics { contentDescription = recordDesc }
-        )
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_tile_record),
+                contentDescription = null
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(stringResource(R.string.action_record))
+        }
     }
 }
