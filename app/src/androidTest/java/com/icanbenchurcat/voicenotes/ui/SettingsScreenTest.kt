@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -232,11 +233,14 @@ class SettingsScreenTest {
             )
         }
 
-        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Delete all notes"))
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasText("No voice notes or audio recordings to delete."))
         composeTestRule.onNodeWithContentDescription("Delete all notes and audio")
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsNotEnabled()
         composeTestRule.onNodeWithText("No voice notes or audio recordings to delete.")
+            .performScrollTo()
             .assertIsDisplayed()
     }
 }
