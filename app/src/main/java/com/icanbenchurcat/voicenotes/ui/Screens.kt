@@ -52,9 +52,12 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
@@ -62,13 +65,17 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.InputChip
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -668,6 +675,14 @@ fun NotesListScreen(
     }
 }
 
+private val StringListSaver = listSaver<List<String>, String>(
+    save = { it },
+    restore = { it }
+)
+
+private fun normalizeTagInput(raw: String): String =
+    raw.trim().removePrefix("#").trim()
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun NoteDetailScreen(
@@ -687,6 +702,7 @@ fun NoteDetailScreen(
     onDeleteNote: () -> Unit = {},
     audioPlaybackState: AudioPlaybackState = rememberAudioPlayerState(note.audioPath),
     onSaveEdit: (title: String, transcript: String) -> Unit = { _, _ -> },
+    onSaveTags: (tags: List<String>) -> Unit = {},
     onShareText: () -> Unit = {},
     onShareAudio: () -> Unit = {},
     hasAudioFile: Boolean = false,
@@ -696,6 +712,10 @@ fun NoteDetailScreen(
     var isEditing by rememberSaveable { mutableStateOf(false) }
     var editTitle by rememberSaveable(note.id, isEditing) { mutableStateOf(note.title) }
     var editTranscript by rememberSaveable(note.id, isEditing) { mutableStateOf(note.transcript) }
+    var editTags by rememberSaveable(note.id, isEditing, stateSaver = StringListSaver) {
+        mutableStateOf(tags)
+    }
+    var newTagInput by rememberSaveable(note.id, isEditing) { mutableStateOf("") }
     var editingActionId by rememberSaveable(note.id) { mutableStateOf<Long?>(null) }
     var isAddingAction by rememberSaveable(note.id) { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -705,6 +725,7 @@ fun NoteDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val scrollState = rememberScrollState()
 
     val confirmFiling: (String, String) -> Unit = { bucketKind, bucketDisplayName ->
         onConfirmOrChangeBucket(bucketKind)
@@ -718,11 +739,45 @@ fun NoteDetailScreen(
         }
     }
 
+    fun cancelEdit() {
+        isEditing = false
+        editTitle = note.title
+        editTranscript = note.transcript
+        editTags = tags
+        newTagInput = ""
+    }
+
+    fun addPendingTag() {
+        val normalized = normalizeTagInput(newTagInput)
+        if (normalized.isNotEmpty() && normalized !in editTags) {
+            editTags = editTags + normalized
+        }
+        newTagInput = ""
+    }
+
+    fun saveEdit() {
+        val pending = normalizeTagInput(newTagInput)
+        val finalTags = (if (pending.isNotEmpty() && pending !in editTags) editTags + pending else editTags)
+            .map(::normalizeTagInput)
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sorted()
+        isEditing = false
+        editTags = finalTags
+        newTagInput = ""
+        onSaveEdit(editTitle, editTranscript)
+        onSaveTags(finalTags)
+    }
+
+    LaunchedEffect(isEditing) {
+        if (isEditing) {
+            scrollState.animateScrollTo(0)
+        }
+    }
+
     BackHandler(enabled = isEditing || isAddingAction || editingActionId != null) {
         if (isEditing) {
-            isEditing = false
-            editTitle = note.title
-            editTranscript = note.transcript
+            cancelEdit()
         } else {
             isAddingAction = false
             editingActionId = null
@@ -761,123 +816,169 @@ fun NoteDetailScreen(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = note.title.ifBlank { "Untitled note" },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                ),
-                scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier.semantics { contentDescription = "Navigate back" }
-                        ) {
-                            Text("←", style = MaterialTheme.typography.titleLarge)
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            editTitle = note.title
-                            editTranscript = note.transcript
-                            isEditing = true
-                        },
-                        modifier = Modifier
-                            .defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
-                            .semantics { contentDescription = "Edit note" }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = null
+            if (isEditing) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = stringResource(R.string.edit_note_title),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleMedium
                         )
-                    }
-                    Box {
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    scrollBehavior = scrollBehavior,
+                    navigationIcon = {
                         IconButton(
-                            onClick = {
-                                if (hasAudioFile) {
-                                    showShareMenu = true
-                                } else {
-                                    onShareText()
-                                }
-                            },
+                            onClick = { cancelEdit() },
                             modifier = Modifier
                                 .defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
-                                .semantics { contentDescription = "Share note" }
+                                .semantics { contentDescription = "Cancel editing note" }
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Share,
+                                imageVector = Icons.Default.Close,
                                 contentDescription = null
                             )
                         }
-                        if (hasAudioFile) {
+                    },
+                    actions = {
+                        Button(
+                            onClick = { saveEdit() },
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .defaultMinSize(minHeight = 48.dp)
+                                .semantics { contentDescription = "Save edited note" }
+                        ) {
+                            Text(stringResource(R.string.action_save_note))
+                        }
+                    }
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = note.title.ifBlank { "Untitled note" },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    scrollBehavior = scrollBehavior,
+                    navigationIcon = {
+                        if (onBack != null) {
+                            IconButton(
+                                onClick = onBack,
+                                modifier = Modifier.semantics { contentDescription = "Navigate back" }
+                            ) {
+                                Text("←", style = MaterialTheme.typography.titleLarge)
+                            }
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                showShareMenu = false
+                                showOverflowMenu = false
+                                editTitle = note.title
+                                editTranscript = note.transcript
+                                editTags = tags
+                                newTagInput = ""
+                                isEditing = true
+                            },
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
+                                .semantics { contentDescription = "Edit note" }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null
+                            )
+                        }
+                        Box {
+                            IconButton(
+                                onClick = {
+                                    if (hasAudioFile) {
+                                        showShareMenu = true
+                                    } else {
+                                        onShareText()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
+                                    .semantics { contentDescription = "Share note" }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = null
+                                )
+                            }
+                            if (hasAudioFile) {
+                                DropdownMenu(
+                                    expanded = showShareMenu,
+                                    onDismissRequest = { showShareMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.action_share_text)) },
+                                        onClick = {
+                                            showShareMenu = false
+                                            onShareText()
+                                        },
+                                        modifier = Modifier.semantics { contentDescription = "Share note text" }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.action_share_audio)) },
+                                        onClick = {
+                                            showShareMenu = false
+                                            onShareAudio()
+                                        },
+                                        modifier = Modifier.semantics { contentDescription = "Share note audio" }
+                                    )
+                                }
+                            }
+                        }
+                        developerActions()
+                        Box {
+                            IconButton(
+                                onClick = { showOverflowMenu = true },
+                                modifier = Modifier
+                                    .defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
+                                    .semantics { contentDescription = "More options" }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = null
+                                )
+                            }
                             DropdownMenu(
-                                expanded = showShareMenu,
-                                onDismissRequest = { showShareMenu = false }
+                                expanded = showOverflowMenu,
+                                onDismissRequest = { showOverflowMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.action_share_text)) },
-                                    onClick = {
-                                        showShareMenu = false
-                                        onShareText()
+                                    text = { Text(stringResource(R.string.action_delete_note)) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = null
+                                        )
                                     },
-                                    modifier = Modifier.semantics { contentDescription = "Share note text" }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.action_share_audio)) },
                                     onClick = {
-                                        showShareMenu = false
-                                        onShareAudio()
+                                        showOverflowMenu = false
+                                        showDeleteConfirmDialog = true
                                     },
-                                    modifier = Modifier.semantics { contentDescription = "Share note audio" }
+                                    modifier = Modifier.semantics { contentDescription = "Delete note" }
                                 )
                             }
                         }
                     }
-                    developerActions()
-                    Box {
-                        IconButton(
-                            onClick = { showOverflowMenu = true },
-                            modifier = Modifier
-                                .defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
-                                .semantics { contentDescription = "More options" }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = null
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showOverflowMenu,
-                            onDismissRequest = { showOverflowMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.action_delete_note)) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = null
-                                    )
-                                },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    showDeleteConfirmDialog = true
-                                },
-                                modifier = Modifier.semantics { contentDescription = "Delete note" }
-                            )
-                        }
-                    }
-                }
-            )
+                )
+            }
         }
     ) { innerPadding ->
         val layoutDirection = LocalLayoutDirection.current
@@ -887,7 +988,7 @@ fun NoteDetailScreen(
                 .fillMaxSize()
                 .padding(top = innerPadding.calculateTopPadding())
                 .clipToBounds()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(
                     start = 16.dp + innerPadding.calculateStartPadding(layoutDirection),
                     end = 16.dp + innerPadding.calculateEndPadding(layoutDirection),
@@ -897,42 +998,12 @@ fun NoteDetailScreen(
                 .testTag("note_detail_content")
         ) {
         if (isEditing) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedButton(
-                    onClick = {
-                        isEditing = false
-                        editTitle = note.title
-                        editTranscript = note.transcript
-                    },
-                    modifier = Modifier
-                        .defaultMinSize(minHeight = 48.dp)
-                        .semantics { contentDescription = "Cancel editing note" }
-                ) {
-                    Text(stringResource(R.string.action_cancel_edit))
-                }
-                OutlinedButton(
-                    onClick = {
-                        isEditing = false
-                        onSaveEdit(editTitle, editTranscript)
-                    },
-                    modifier = Modifier
-                        .defaultMinSize(minHeight = 48.dp)
-                        .semantics { contentDescription = "Save edited note" }
-                ) {
-                    Text(stringResource(R.string.action_save_note))
-                }
-            }
             OutlinedTextField(
                 value = editTitle,
                 onValueChange = { editTitle = it },
                 label = { Text(stringResource(R.string.edit_title_label)) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp)
                     .semantics { contentDescription = "Edit title input" }
             )
             OutlinedTextField(
@@ -945,6 +1016,66 @@ fun NoteDetailScreen(
                     .semantics { contentDescription = "Edit transcript input" },
                 minLines = 4
             )
+            Text(
+                text = stringResource(R.string.edit_tags_label),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+            if (editTags.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier
+                        .padding(top = 6.dp)
+                        .testTag("note_detail_edit_tags"),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    editTags.forEach { tag ->
+                        InputChip(
+                            selected = false,
+                            onClick = { editTags = editTags - tag },
+                            label = { Text("#$tag", style = MaterialTheme.typography.labelSmall) },
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 48.dp)
+                                .semantics { contentDescription = "Remove tag $tag" }
+                        )
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = newTagInput,
+                    onValueChange = { newTagInput = it },
+                    label = { Text(stringResource(R.string.edit_add_tag_label)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { addPendingTag() }),
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { contentDescription = "Add tag input" }
+                )
+                FilledTonalButton(
+                    onClick = { addPendingTag() },
+                    enabled = normalizeTagInput(newTagInput).isNotEmpty(),
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .semantics { contentDescription = "Add tag" }
+                ) {
+                    Text(stringResource(R.string.action_add_tag))
+                }
+            }
         }
         val effectiveBuckets = remember(availableBuckets, buckets) {
             if (buckets.isNotEmpty()) {
@@ -1038,7 +1169,7 @@ fun NoteDetailScreen(
                 Text(stringResource(R.string.action_confirm_filing, currentBucketDisplayName))
             }
         }
-        if (tags.isNotEmpty()) {
+        if (!isEditing && tags.isNotEmpty()) {
             FlowRow(
                 modifier = Modifier
                     .padding(top = 8.dp)
@@ -1060,29 +1191,35 @@ fun NoteDetailScreen(
                 }
             }
         }
-        if (note.transcript.isNotBlank()) {
-            Text(
-                text = note.transcript,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-        } else {
-            val emptyCopy = if (hasAudioFile) {
-                "No transcript yet. Playback is available; this note was filed by hand (Tier 1)."
-            } else {
-                "No transcript yet. This note was filed by hand (Tier 1)."
-            }
-            Text(
-                text = emptyCopy,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-            if (transcriberStatus == CapabilityStatus.DOWNLOADABLE) {
+        if (!isEditing) {
+            if (note.transcript.isNotBlank()) {
                 Text(
-                    text = "On-device speech model is downloadable; note can be upgraded once downloaded.",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(top = 4.dp)
+                    text = note.transcript,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier
+                        .padding(top = 16.dp)
+                        .testTag("note_detail_transcript")
                 )
+            } else {
+                val emptyCopy = if (hasAudioFile) {
+                    "No transcript yet. Playback is available; this note was filed by hand (Tier 1)."
+                } else {
+                    "No transcript yet. This note was filed by hand (Tier 1)."
+                }
+                Text(
+                    text = emptyCopy,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .padding(top = 16.dp)
+                        .testTag("note_detail_transcript_empty")
+                )
+                if (transcriberStatus == CapabilityStatus.DOWNLOADABLE) {
+                    Text(
+                        text = "On-device speech model is downloadable; note can be upgraded once downloaded.",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
         Row(

@@ -606,6 +606,14 @@ class MainActivity : ComponentActivity() {
                                                         )
                                                     }
                                                 },
+                                                onSaveTags = { newTags ->
+                                                    scope.launch {
+                                                        dao.replaceTagsForNote(
+                                                            noteId = note.id,
+                                                            tags = newTags
+                                                        )
+                                                    }
+                                                },
                                                 onShareText = {
                                                     val chooser = NoteShareHelper.createShareTextIntent(
                                                         note = note,

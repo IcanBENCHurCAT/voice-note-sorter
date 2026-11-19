@@ -146,6 +146,23 @@ interface NoteDao {
     @Query("SELECT tagName FROM note_tags WHERE noteId = :noteId ORDER BY tagName ASC")
     suspend fun tagsFor(noteId: Long): List<String>
 
+    /**
+     * Atomically replaces all tags associated with [noteId] with normalized, distinct [tags].
+     */
+    @Transaction
+    suspend fun replaceTagsForNote(noteId: Long, tags: List<String>) {
+        val normalized = tags
+            .map { it.trim().removePrefix("#").trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sorted()
+        deleteNoteTagsForNote(noteId)
+        if (normalized.isNotEmpty()) {
+            insertTags(normalized.map { Tag(it) })
+            insertNoteTags(normalized.map { NoteTag(noteId = noteId, tagName = it) })
+        }
+    }
+
     @Query(
         "SELECT notes.* FROM notes JOIN note_tags ON notes.id = note_tags.noteId " +
             "WHERE note_tags.tagName = :tagName ORDER BY notes.createdAtEpochMs DESC"
