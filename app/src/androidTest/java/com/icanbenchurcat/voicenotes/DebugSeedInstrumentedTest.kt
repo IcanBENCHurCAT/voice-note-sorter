@@ -57,11 +57,14 @@ class DebugSeedInstrumentedTest {
         val dao = AppDatabase.get(context).noteDao()
 
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("No voice notes yet. Tap Record to capture a thought.")
+            composeRule.onAllNodesWithText("No voice notes yet")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithText("No voice notes yet. Tap Record to capture a thought.")
+        composeRule.onNodeWithText("No voice notes yet")
             .assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "Tap Record to capture a thought. Everything stays private on this device and sorts automatically into Notes and Tasks."
+        ).assertIsDisplayed()
 
         // Verify Developer options is inside the TopAppBar (not an emoji top strip)
         assertTrue(composeRule.onAllNodesWithText("🛠").fetchSemanticsNodes().isEmpty())
