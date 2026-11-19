@@ -214,7 +214,9 @@ class SettingsScreenTest {
                 topBarActions = {
                     IconButton(
                         onClick = { clicked = true },
-                        modifier = Modifier.semantics { contentDescription = "Developer options" }
+                        modifier = Modifier
+                            .size(48.dp)
+                            .semantics { contentDescription = "Developer options" }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Build,

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
@@ -50,6 +51,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.navigation3.runtime.NavKey
@@ -319,7 +321,9 @@ class MainActivity : ComponentActivity() {
                                     val settingsDesc = stringResource(R.string.action_settings)
                                     IconButton(
                                         onClick = { backStack.add(SettingsKey) },
-                                        modifier = Modifier.semantics { contentDescription = settingsDesc }
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .semantics { contentDescription = settingsDesc }
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Settings,

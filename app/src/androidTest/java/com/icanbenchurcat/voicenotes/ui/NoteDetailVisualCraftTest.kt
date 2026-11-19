@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material3.Icon
@@ -326,7 +327,9 @@ class NoteDetailVisualCraftTest {
                 developerActions = {
                     IconButton(
                         onClick = { devClicked = true },
-                        modifier = Modifier.semantics { contentDescription = "Developer options" }
+                        modifier = Modifier
+                            .size(48.dp)
+                            .semantics { contentDescription = "Developer options" }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Build,

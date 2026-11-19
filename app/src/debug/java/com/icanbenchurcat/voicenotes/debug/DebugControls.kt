@@ -3,6 +3,7 @@
 package com.icanbenchurcat.voicenotes.debug
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material3.DropdownMenu
@@ -21,6 +22,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import com.icanbenchurcat.voicenotes.R
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.data.ActionItem
@@ -190,6 +192,7 @@ fun DebugSeedToolbar(db: AppDatabase, onReset: () -> Unit = {}) {
         IconButton(
             onClick = { expanded = true },
             modifier = Modifier
+                .size(48.dp)
                 .testTag("developer_options_action")
                 .semantics { contentDescription = devOptionsDesc }
         ) {
