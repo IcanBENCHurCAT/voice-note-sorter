@@ -4,6 +4,7 @@ package com.icanbenchurcat.voicenotes.ui
 
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.data.Bucket
+import com.icanbenchurcat.voicenotes.data.NoteTag
 import java.text.SimpleDateFormat
 import java.time.Clock
 import java.time.Instant
@@ -237,5 +238,22 @@ object NoteCardFormatting {
             .joinToString(" ") { word ->
                 word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
             }
+    }
+
+    /**
+     * Scopes [allTags] to tags present on the currently visible notes ([visibleNoteIds]),
+     * preserving [selectedTag] if active so the user can always deselect it.
+     */
+    fun scopeVisibleTags(
+        allTags: List<String>,
+        visibleNoteIds: Set<Long>,
+        noteTags: List<NoteTag>,
+        selectedTag: String? = null
+    ): List<String> {
+        if (allTags.isEmpty()) return emptyList()
+        val activeTagNames = noteTags.asSequence()
+            .filter { it.noteId in visibleNoteIds }
+            .mapTo(HashSet()) { it.tagName }
+        return allTags.filter { it in activeTagNames || it == selectedTag }
     }
 }

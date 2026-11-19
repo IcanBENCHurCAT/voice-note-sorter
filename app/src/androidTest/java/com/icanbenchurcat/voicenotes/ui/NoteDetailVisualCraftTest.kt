@@ -2,6 +2,7 @@
 
 package com.icanbenchurcat.voicenotes.ui
 
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -10,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 
 import androidx.compose.foundation.layout.size
@@ -305,7 +307,7 @@ class NoteDetailVisualCraftTest {
     }
 
     @Test
-    fun noteDetail_whenAudioFileMissing_surfacesPlaybackCardInErrorState() {
+    fun noteDetail_whenAudioFileMissing_surfacesCalmNeutralCaptionWithInfoIcon() {
         val note = Note(
             id = 12L,
             createdAtEpochMs = 1000L,
@@ -318,7 +320,12 @@ class NoteDetailVisualCraftTest {
             status = NoteStatus.SORTED.name
         )
 
+        var neutralColor = Color.Unspecified
+        var errorColor = Color.Unspecified
+
         composeTestRule.setContent {
+            neutralColor = MaterialTheme.colorScheme.onSurfaceVariant
+            errorColor = MaterialTheme.colorScheme.error
             NoteDetailScreen(
                 note = note,
                 buckets = listOf(Bucket("IDEA", "Ideas")),
@@ -329,8 +336,17 @@ class NoteDetailVisualCraftTest {
 
         // Playback card header is surfaced
         composeTestRule.onNodeWithText("Original audio").assertIsDisplayed()
-        // Error message indicating audio recording is unavailable on device is surfaced
+        // Calm neutral info icon and caption are surfaced instead of error-red
+        composeTestRule.onNodeWithTag("audio_missing_info_icon").assertIsDisplayed()
         composeTestRule.onNodeWithText("Audio recording not available on device").assertIsDisplayed()
+
+        val captionNode = composeTestRule.onNodeWithTag("audio_missing_caption").fetchSemanticsNode()
+        val layoutResults = mutableListOf<TextLayoutResult>()
+        captionNode.config[SemanticsActions.GetTextLayoutResult].action?.invoke(layoutResults)
+        assertTrue(layoutResults.isNotEmpty())
+        val captionColor = layoutResults.first().layoutInput.style.color
+        assertEquals(neutralColor, captionColor)
+        assertTrue("Missing audio caption should not use error red", captionColor != errorColor)
     }
 
     @Test

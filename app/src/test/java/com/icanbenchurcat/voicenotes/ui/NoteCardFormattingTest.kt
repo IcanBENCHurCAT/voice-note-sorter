@@ -3,6 +3,7 @@
 package com.icanbenchurcat.voicenotes.ui
 
 import com.icanbenchurcat.voicenotes.data.Bucket
+import com.icanbenchurcat.voicenotes.data.NoteTag
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Clock
@@ -187,5 +188,49 @@ class NoteCardFormattingTest {
             nov23UtcMidnight,
             NoteCardFormatting.toDatePickerInitialUtcMillis(updatedTime, clock)
         )
+    }
+
+    @Test
+    fun scopeVisibleTags_filtersToTagsPresentOnVisibleNotes() {
+        val allTags = listOf("errands", "groceries", "product", "renovation")
+        val noteTags = listOf(
+            NoteTag(noteId = 1L, tagName = "product"),
+            NoteTag(noteId = 2L, tagName = "errands"),
+            NoteTag(noteId = 2L, tagName = "renovation"),
+            NoteTag(noteId = 3L, tagName = "groceries")
+        )
+
+        val scoped = NoteCardFormatting.scopeVisibleTags(
+            allTags = allTags,
+            visibleNoteIds = setOf(2L),
+            noteTags = noteTags
+        )
+
+        assertEquals(listOf("errands", "renovation"), scoped)
+    }
+
+    @Test
+    fun scopeVisibleTags_preservesSelectedTagWhenVisibleNotesEmpty() {
+        val allTags = listOf("errands", "groceries")
+        val noteTags = listOf(NoteTag(noteId = 1L, tagName = "groceries"))
+
+        val scoped = NoteCardFormatting.scopeVisibleTags(
+            allTags = allTags,
+            visibleNoteIds = emptySet(),
+            noteTags = noteTags,
+            selectedTag = "errands"
+        )
+
+        assertEquals(listOf("errands"), scoped)
+    }
+
+    @Test
+    fun scopeVisibleTags_emptyAllTags_returnsEmpty() {
+        val scoped = NoteCardFormatting.scopeVisibleTags(
+            allTags = emptyList(),
+            visibleNoteIds = setOf(1L),
+            noteTags = listOf(NoteTag(noteId = 1L, tagName = "work"))
+        )
+        assertEquals(emptyList<String>(), scoped)
     }
 }

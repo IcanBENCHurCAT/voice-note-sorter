@@ -15,14 +15,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,10 +37,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,26 +80,50 @@ fun TasksScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FilterChip(
                 selected = selectedFilter == TaskFilter.ALL,
                 onClick = { selectedFilter = TaskFilter.ALL },
                 label = { Text("${stringResource(R.string.tasks_filter_all)} (${tasks.size})") },
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = selectedFilter == TaskFilter.ALL,
+                    borderColor = MaterialTheme.colorScheme.outline
+                ),
                 modifier = Modifier.semantics { contentDescription = "Filter all tasks" }
             )
             FilterChip(
                 selected = selectedFilter == TaskFilter.ACTIVE,
                 onClick = { selectedFilter = TaskFilter.ACTIVE },
                 label = { Text("${stringResource(R.string.tasks_filter_active)} ($activeCount)") },
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = selectedFilter == TaskFilter.ACTIVE,
+                    borderColor = MaterialTheme.colorScheme.outline
+                ),
                 modifier = Modifier.semantics { contentDescription = "Filter active tasks" }
             )
             FilterChip(
                 selected = selectedFilter == TaskFilter.COMPLETED,
                 onClick = { selectedFilter = TaskFilter.COMPLETED },
                 label = { Text("${stringResource(R.string.tasks_filter_completed)} ($completedCount)") },
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = selectedFilter == TaskFilter.COMPLETED,
+                    borderColor = MaterialTheme.colorScheme.outline
+                ),
                 modifier = Modifier.semantics { contentDescription = "Filter completed tasks" }
+            )
+        }
+
+        if (tasks.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.tasks_summary_counts, activeCount, completedCount),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
         }
 
@@ -215,7 +244,14 @@ fun TaskCard(
                 Text(
                     text = item.text,
                     style = MaterialTheme.typography.bodyLarge,
-                    textDecoration = if (item.done) TextDecoration.LineThrough else TextDecoration.None
+                    fontWeight = if (item.done) FontWeight.Normal else FontWeight.Medium,
+                    color = if (item.done) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    textDecoration = if (item.done) TextDecoration.LineThrough else TextDecoration.None,
+                    modifier = Modifier.testTag("task_title_${item.id}")
                 )
 
                 ActionDueDateBadge(
@@ -224,16 +260,36 @@ fun TaskCard(
                 )
 
                 val parentTitle = item.noteTitle.ifBlank { "Note #${item.noteId}" }
-                Text(
-                    text = "From: $parentTitle",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.secondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
                     modifier = Modifier
-                        .padding(top = 4.dp)
-                        .semantics { contentDescription = "From note $parentTitle" }
-                )
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .clickable(
+                            role = Role.Button,
+                            onClick = onOpenNote
+                        )
+                        .padding(top = 2.dp)
+                        .semantics { contentDescription = "From note $parentTitle, open note" },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "From: $parentTitle",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .testTag("task_source_chevron_${item.id}")
+                    )
+                }
             }
 
             IconButton(
