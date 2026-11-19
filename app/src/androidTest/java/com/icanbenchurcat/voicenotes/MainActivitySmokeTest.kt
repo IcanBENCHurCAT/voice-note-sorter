@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -17,6 +18,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.icanbenchurcat.voicenotes.data.AppDatabase
 import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteStatus
+import com.icanbenchurcat.voicenotes.data.StorageRetentionManager
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -35,6 +37,13 @@ class MainActivitySmokeTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = AppDatabase.get(context)
         db.clearAllTables()
+        runBlocking {
+            StorageRetentionManager.fromContext(context).setDeveloperModeEnabled(false)
+        }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithContentDescription("Developer options")
+                .fetchSemanticsNodes().isEmpty()
+        }
     }
 
     @Test
@@ -77,8 +86,9 @@ class MainActivitySmokeTest {
         }
 
         composeRule.onNodeWithText("Pick up coffee beans and oat milk on the way home.").assertIsDisplayed()
-        composeRule.onNodeWithText("Transcribe: OK").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Bucket: OK").performScrollTo().assertIsDisplayed()
+        assertEquals(0, composeRule.onAllNodesWithText("Processing status").fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithText("Transcribe: OK").fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithText("Bucket: OK").fetchSemanticsNodes().size)
     }
 
     @Test
@@ -135,10 +145,10 @@ class MainActivitySmokeTest {
         // Open the Needs Review note and change its bucket to NOTE (clearing NEEDS_REVIEW)
         composeRule.onNodeWithText("Courtyard observation").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Confirm filing (INBOX)")
+            composeRule.onAllNodesWithText("Confirm filing in Inbox")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithContentDescription("File in NOTE").performClick()
+        composeRule.onNodeWithContentDescription("File in Notes").performClick()
 
         composeRule.waitUntil(timeoutMillis = 5_000) {
             runBlocking { dao.byId(reviewNoteId)?.status == NoteStatus.SORTED.name }

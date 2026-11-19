@@ -2,6 +2,7 @@
 
 package com.icanbenchurcat.voicenotes.ui
 
+import com.icanbenchurcat.voicenotes.data.Bucket
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -91,5 +92,22 @@ class NoteCardFormattingTest {
         val (visible4, overflow4) = NoteCardFormatting.collapseTags(fourTags, maxVisible = 3)
         assertEquals(listOf("a", "b", "c"), visible4)
         assertEquals(1, overflow4)
+    }
+
+    @Test
+    fun formatBucketDisplayName_resolvesDefaultsCustomNamesAndFallbacks() {
+        assertEquals("Ideas", NoteCardFormatting.formatBucketDisplayName("IDEA"))
+        assertEquals("Tasks", NoteCardFormatting.formatBucketDisplayName("TASK"))
+        assertEquals("Lists", NoteCardFormatting.formatBucketDisplayName("LIST"))
+        assertEquals("Notes", NoteCardFormatting.formatBucketDisplayName("NOTE"))
+        assertEquals("Inbox", NoteCardFormatting.formatBucketDisplayName("INBOX"))
+
+        val renamedBuckets = listOf(
+            Bucket("TASK", "Action Items"),
+            Bucket("CUSTOM_PROJ", "Client Projects")
+        )
+        assertEquals("Action Items", NoteCardFormatting.formatBucketDisplayName("TASK", renamedBuckets))
+        assertEquals("Client Projects", NoteCardFormatting.formatBucketDisplayName("CUSTOM_PROJ", renamedBuckets))
+        assertEquals("Work Projects", NoteCardFormatting.formatBucketDisplayName("WORK_PROJECTS"))
     }
 }
