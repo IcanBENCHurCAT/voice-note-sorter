@@ -27,7 +27,14 @@ import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.ai.TitleSummary
 import com.icanbenchurcat.voicenotes.ai.Transcriber
+import com.icanbenchurcat.voicenotes.ai.NOTE_ANALYSIS_SYSTEM_INSTRUCTION
+import com.icanbenchurcat.voicenotes.ai.PromptRequest
+import com.icanbenchurcat.voicenotes.ai.StructuredActionExtraction
+import com.icanbenchurcat.voicenotes.ai.StructuredActionItem
+import com.icanbenchurcat.voicenotes.ai.StructuredBucketAssignment
+import com.icanbenchurcat.voicenotes.ai.StructuredTitleSummary
 import com.icanbenchurcat.voicenotes.ai.Transcript
+import com.icanbenchurcat.voicenotes.ai.buildTranscriptPrefix
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.Bucket
 import com.icanbenchurcat.voicenotes.data.Note
@@ -836,5 +843,214 @@ class SortingWorkerTest {
         assertEquals("TASK", outcome.updatedNote.bucketKind)
         assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
         assertEquals("transcribe:OK,summarize:OK,actions:OK,bucket:OK", outcome.updatedNote.stageStatus)
+    }
+
+    @Test
+    fun nanoPipeline_reusesSingleSessionWithSharedPrefixWarmupAndCleanup_andPrefersStructuredOutput() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val zone = ZoneId.of("UTC")
+        val fixedClock = Clock.fixed(
+            LocalDateTime.of(2026, 11, 2, 10, 0, 0).atZone(zone).toInstant(),
+            zone
+        )
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val transcriptText = "Need to call the plumber tomorrow at 2pm and pick up replacement gaskets."
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            structuredOutputAvailable = true,
+            systemPromptAvailable = true,
+            cachingAvailable = true,
+            typedResponder = { _, outputClass ->
+                when (outputClass) {
+                    StructuredTitleSummary::class -> StructuredTitleSummary(
+                        title = "Plumbing & Parts Run",
+                        summary = "Call the plumber tomorrow at 2pm and pick up replacement gaskets."
+                    )
+                    StructuredActionExtraction::class -> StructuredActionExtraction(
+                        actions = listOf(
+                            StructuredActionItem("Call the plumber", "tomorrow at 2pm"),
+                            StructuredActionItem("Pick up replacement gaskets", null)
+                        )
+                    )
+                    StructuredBucketAssignment::class -> StructuredBucketAssignment(
+                        bucketKind = "TASK",
+                        tags = listOf("plumbing", "home-repair")
+                    )
+                    else -> null
+                }
+            }
+        )
+
+        val fallbackSummarizer = FakeSummarizer()
+        val fallbackExtractor = FakeActionExtractor()
+        val fallbackBucketer = FakeBucketer()
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(result = Transcript(transcriptText, Tier.FULL)),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = NanoSummarizer(promptClient, fallbackSummarizer),
+            extractor = NanoActionExtractor(promptClient, fallbackExtractor, fixedClock),
+            bucketer = NanoBucketer(promptClient, fallbackBucketer),
+            fallbackSummarizer = fallbackSummarizer,
+            fallbackExtractor = fallbackExtractor,
+            fallbackBucketer = fallbackBucketer,
+            dao = dao
+        )
+
+        assertEquals(1, promptClient.openedSessions.size)
+        val session = promptClient.openedSessions.single()
+        assertEquals(1, session.warmupCalls)
+        assertEquals(3, session.generateTypedCalls)
+        assertEquals(0, session.generateTextCalls)
+        assertEquals(1, session.clearImplicitCachesCalls)
+        assertEquals(1, session.closeCalls)
+        assertEquals(0, fallbackSummarizer.calls)
+        assertEquals(0, fallbackExtractor.calls)
+        assertEquals(0, fallbackBucketer.calls)
+
+        val expectedPrefix = buildTranscriptPrefix(transcriptText)
+        assertEquals(3, session.typedRequests.size)
+        session.typedRequests.forEach { req ->
+            assertEquals(NOTE_ANALYSIS_SYSTEM_INSTRUCTION, req.systemInstruction)
+            assertEquals(expectedPrefix, req.promptPrefix)
+        }
+
+        assertEquals("Plumbing & Parts Run", outcome.updatedNote.title)
+        assertEquals("TASK", outcome.updatedNote.bucketKind)
+        assertEquals(listOf("home-repair", "plumbing"), outcome.tags)
+        assertEquals(2, outcome.extractedActions.size)
+        assertNotNull(outcome.extractedActions[0].dueAtEpochMs)
+        assertEquals("FULL", outcome.updatedNote.tierUsed)
+        assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
+    }
+
+    @Test
+    fun nanoPipeline_stageStructuredFailure_fallsBackToRegexWithinSharedSession() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val zone = ZoneId.of("UTC")
+        val fixedClock = Clock.fixed(
+            LocalDateTime.of(2026, 11, 2, 10, 0, 0).atZone(zone).toInstant(),
+            zone
+        )
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val promptClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            structuredOutputAvailable = true,
+            typedResponder = { _, outputClass ->
+                when (outputClass) {
+                    StructuredTitleSummary::class -> StructuredTitleSummary(
+                        title = "Hardware Errand",
+                        summary = "Call plumber and buy gaskets."
+                    )
+                    StructuredActionExtraction::class -> null // Simulate non-busy structured decode failure
+                    StructuredBucketAssignment::class -> StructuredBucketAssignment(
+                        bucketKind = "TASK",
+                        tags = listOf("plumbing")
+                    )
+                    else -> null
+                }
+            },
+            responder = { prompt ->
+                if (prompt.startsWith("Extract concrete action items")) {
+                    "ACTION: Call the plumber | DUE: tomorrow at 2pm"
+                } else {
+                    ""
+                }
+            }
+        )
+
+        val outcome = SortingWorker.executePipeline(
+            note = dao.byId(noteId)!!,
+            capabilityProbe = probe,
+            transcriber = FakeTranscriber(
+                result = Transcript("Need to call the plumber tomorrow at 2pm.", Tier.FULL)
+            ),
+            platformTranscriber = FakeTranscriber(),
+            nullTranscriber = NullTranscriber,
+            summarizer = NanoSummarizer(promptClient),
+            extractor = NanoActionExtractor(promptClient, HeuristicActionExtractor(), fixedClock),
+            bucketer = NanoBucketer(promptClient),
+            dao = dao
+        )
+
+        assertEquals(1, promptClient.openedSessions.size)
+        val session = promptClient.openedSessions.single()
+        assertEquals(1, session.warmupCalls)
+        assertEquals(3, session.generateTypedCalls)
+        assertEquals(1, session.generateTextCalls)
+        assertEquals(1, session.clearImplicitCachesCalls)
+        assertEquals(1, session.closeCalls)
+        assertEquals(listOf("Call the plumber"), outcome.extractedActions.map { it.text })
+        assertEquals("FULL", outcome.updatedNote.tierUsed)
+        assertEquals(NoteStatus.SORTED.name, outcome.updatedNote.status)
+    }
+
+    @Test
+    fun nanoPipeline_clearsCachesAndClosesSessionOnCancellation() = runTest {
+        val dao = InMemoryFakeNoteDao()
+        val noteId = dao.insert(sampleNote())
+
+        val probe = CapabilityProbe(
+            FakeCapabilityChecker(
+                transcriber = CapabilityStatus.AVAILABLE,
+                summarizer = CapabilityStatus.AVAILABLE,
+                actions = CapabilityStatus.AVAILABLE
+            ),
+            dataStore
+        )
+
+        val cancelingClient = FakeGenAiPromptClient(
+            currentStatus = CapabilityStatus.AVAILABLE,
+            structuredOutputAvailable = true,
+            typedException = CancellationException("Worker cancelled mid-pipeline")
+        )
+
+        try {
+            SortingWorker.executePipeline(
+                note = dao.byId(noteId)!!,
+                capabilityProbe = probe,
+                transcriber = FakeTranscriber(result = Transcript("Call Sam tomorrow.", Tier.FULL)),
+                platformTranscriber = FakeTranscriber(),
+                nullTranscriber = NullTranscriber,
+                summarizer = NanoSummarizer(cancelingClient),
+                extractor = NanoActionExtractor(cancelingClient),
+                bucketer = NanoBucketer(cancelingClient),
+                dao = dao
+            )
+            fail("Expected CancellationException to propagate")
+        } catch (_: CancellationException) {
+            // Expected
+        }
+
+        assertEquals(1, cancelingClient.openedSessions.size)
+        val session = cancelingClient.openedSessions.single()
+        assertEquals(1, session.warmupCalls)
+        assertEquals(1, session.clearImplicitCachesCalls)
+        assertEquals(1, session.closeCalls)
     }
 }

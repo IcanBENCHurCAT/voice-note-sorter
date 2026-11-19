@@ -13,6 +13,8 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
 import com.icanbenchurcat.voicenotes.ai.ExtractiveSummarizer
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
+import com.icanbenchurcat.voicenotes.ai.GenAiPromptClient
+import com.icanbenchurcat.voicenotes.ai.GenAiPromptSession
 import com.icanbenchurcat.voicenotes.ai.HeuristicActionExtractor
 import com.icanbenchurcat.voicenotes.ai.HeuristicBucketer
 import com.icanbenchurcat.voicenotes.ai.NanoActionExtractor
@@ -34,6 +36,8 @@ import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import com.icanbenchurcat.voicenotes.data.Tag
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /**
  * Outcome of running the sorting pipeline for a single [Note].
@@ -126,7 +130,8 @@ class SortingWorker(
             fallbackSummarizer: Summarizer = ExtractiveSummarizer(),
             fallbackExtractor: ActionExtractor = HeuristicActionExtractor(),
             fallbackBucketer: Bucketer = HeuristicBucketer(),
-            dao: NoteDao? = null
+            dao: NoteDao? = null,
+            promptSession: GenAiPromptSession? = null
         ): PipelineOutcome {
             val stages = mutableListOf<String>()
             var currentNote = note
@@ -213,233 +218,283 @@ class SortingWorker(
             )
             dao?.update(currentNote)
 
-            // Stage 2: title + summary — independently caught and persisted
+            // Stages 2-4 share one prompt session (warmup + SystemInstruction + transcript
+            // PromptPrefix caching) whenever at least one Nano prompt stage is probed AVAILABLE.
             val probedSummarizerStatus = capabilityProbe.summarizerStatus()
-            val activeSummarizer = if (
-                probedSummarizerStatus == CapabilityStatus.AVAILABLE &&
-                summarizer.status() == CapabilityStatus.AVAILABLE
-            ) {
-                summarizer
-            } else {
-                fallbackSummarizer
-            }
-            var stage2ModelSucceeded = false
-            try {
-                val ts = try {
-                    val result: TitleSummary
-                    if (activeSummarizer is NanoSummarizer) {
-                        val (summaryResult, summaryTier) = activeSummarizer.summarizeWithTier(currentNote.transcript)
-                        result = summaryResult
-                        stage2ModelSucceeded = summaryTier == Tier.FULL
-                    } else {
-                        result = activeSummarizer.summarize(currentNote.transcript)
-                        stage2ModelSucceeded = activeSummarizer !== fallbackSummarizer &&
-                            activeSummarizer !is ExtractiveSummarizer
-                    }
-                    stages += "summarize:OK"
-                    result
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: CapabilityBusyException) {
-                    stages += "summarize:BUSY"
-                    CapabilityProbe.logDemotion("summarizer", Tier.FULL, Tier.CORE)
-                    if (activeSummarizer !== fallbackSummarizer) {
-                        val fallbackResult = fallbackSummarizer.summarize(currentNote.transcript)
-                        stages += "summarize_fallback:OK"
-                        fallbackResult
-                    } else {
-                        null
-                    }
-                }
-                currentNote = if (ts != null) {
-                    currentNote.copy(
-                        title = ts.title,
-                        summary = ts.summary,
-                        stageStatus = stages.joinToString(",")
-                    )
-                } else {
-                    currentNote.copy(stageStatus = stages.joinToString(","))
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                stages += "summarize:FAILED"
-                currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
-            }
-            dao?.update(currentNote)
-
-            // Stage 3: actions — independently caught, idempotently replaced, and persisted
             val probedActionsStatus = capabilityProbe.actionExtractorStatus()
-            val activeExtractor = if (
-                probedActionsStatus == CapabilityStatus.AVAILABLE &&
-                extractor.status() == CapabilityStatus.AVAILABLE
+            val sharedClient = resolveSharedNanoClient(
+                probedSummarizerStatus = probedSummarizerStatus,
+                probedActionsStatus = probedActionsStatus,
+                summarizer = summarizer,
+                extractor = extractor,
+                bucketer = bucketer
+            )
+            val ownedSession = if (
+                promptSession == null &&
+                sharedClient != null &&
+                currentNote.transcript.isNotBlank()
             ) {
-                extractor
+                sharedClient.openSession()
             } else {
-                fallbackExtractor
+                null
             }
-            var persistedActions: List<ActionItem> = emptyList()
-            var stage3ModelSucceeded = false
-            try {
-                val extracted = try {
-                    val result: List<ExtractedAction>
-                    if (activeExtractor is NanoActionExtractor) {
-                        val (extractedItems, extractorTier) = activeExtractor.extractWithTier(currentNote.transcript)
-                        result = extractedItems
-                        stage3ModelSucceeded = extractorTier == Tier.FULL
-                    } else {
-                        result = activeExtractor.extract(currentNote.transcript)
-                        stage3ModelSucceeded = activeExtractor !== fallbackExtractor &&
-                            activeExtractor !is HeuristicActionExtractor
-                    }
-                    stages += "actions:OK"
-                    result
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: CapabilityBusyException) {
-                    stages += "actions:BUSY"
-                    CapabilityProbe.logDemotion("actions", Tier.FULL, Tier.CORE)
-                    if (activeExtractor !== fallbackExtractor) {
-                        val fallbackResult = fallbackExtractor.extract(currentNote.transcript)
-                        stages += "actions_fallback:OK"
-                        fallbackResult
-                    } else {
-                        null
-                    }
-                }
-                if (extracted != null) {
-                    val existingByText = dao?.actionsFor(currentNote.id)
-                        ?.associateBy { it.text.trim() }
-                        .orEmpty()
-                    val deduplicated = extracted
-                        .map { it.copy(text = it.text.trim()) }
-                        .filter { it.text.isNotEmpty() }
-                        .distinctBy { it.text }
-                        .map { item ->
-                            val existing = existingByText[item.text]
-                            ActionItem(
-                                noteId = currentNote.id,
-                                text = item.text,
-                                dueAtEpochMs = item.dueAtEpochMs,
-                                done = existing?.done ?: false
-                            )
-                        }
-                    dao?.deleteActionsForNote(currentNote.id)
-                    if (deduplicated.isNotEmpty()) {
-                        dao?.insertActions(deduplicated)
-                    }
-                    persistedActions = dao?.actionsFor(currentNote.id) ?: deduplicated
-                }
-                currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                stages += "actions:FAILED"
-                currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
-            }
-            dao?.update(currentNote)
+            val activeSession = promptSession ?: ownedSession
 
-            // Stage 4: bucket + tags — independently caught, idempotently replaced, and persisted
-            val activeBucketer = if (
-                probedSummarizerStatus == CapabilityStatus.AVAILABLE &&
-                bucketer.status() == CapabilityStatus.AVAILABLE
-            ) {
-                bucketer
-            } else {
-                fallbackBucketer
-            }
+            var persistedActions: List<ActionItem> = emptyList()
             var persistedTags: List<String> = emptyList()
-            var stage4ModelSucceeded = false
-            var resolvedAssignmentTier: Tier? = null
             try {
-                val rawAssignment = try {
-                    val result = activeBucketer.assign(currentNote.transcript, profile)
-                    stages += "bucket:OK"
-                    stage4ModelSucceeded = activeBucketer !== fallbackBucketer &&
-                        activeBucketer !is HeuristicBucketer &&
-                        result.tier == Tier.FULL
-                    result
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: CapabilityBusyException) {
-                    stages += "bucket:BUSY"
-                    CapabilityProbe.logDemotion("bucketer", Tier.FULL, Tier.CORE)
-                    if (activeBucketer !== fallbackBucketer) {
-                        val fallbackResult = fallbackBucketer.assign(currentNote.transcript, profile)
-                        stages += "bucket_fallback:OK"
-                        fallbackResult
-                    } else {
-                        null
+                if (activeSession != null && currentNote.transcript.isNotBlank()) {
+                    try {
+                        if (activeSession.checkStatus() == CapabilityStatus.AVAILABLE) {
+                            activeSession.warmup()
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
+                        // Best-effort warmup; stages handle BUSY or demotion independently.
                     }
                 }
-                val assignment = rawAssignment?.let { raw ->
-                    if (
-                        raw.bucketKind == "INBOX" &&
-                        persistedActions.isNotEmpty() &&
-                        profile.buckets.any { it.kind == "TASK" }
-                    ) {
-                        raw.copy(
-                            bucketKind = "TASK",
-                            confidence = 0.8f,
-                            score = persistedActions.size,
-                            needsReview = false
+
+                // Stage 2: title + summary — independently caught and persisted
+                val sessionForSummarizer = sessionForStage(summarizer, activeSession, sharedClient)
+                val summarizerReady = probedSummarizerStatus == CapabilityStatus.AVAILABLE &&
+                    (sessionForSummarizer?.checkStatus() ?: summarizer.status()) == CapabilityStatus.AVAILABLE
+                val activeSummarizer = if (summarizerReady) summarizer else fallbackSummarizer
+                var stage2ModelSucceeded = false
+                try {
+                    val ts = try {
+                        val result: TitleSummary
+                        if (activeSummarizer is NanoSummarizer) {
+                            val (summaryResult, summaryTier) = activeSummarizer.summarizeWithTier(
+                                transcript = currentNote.transcript,
+                                session = sessionForSummarizer
+                            )
+                            result = summaryResult
+                            stage2ModelSucceeded = summaryTier == Tier.FULL
+                        } else {
+                            result = activeSummarizer.summarize(currentNote.transcript)
+                            stage2ModelSucceeded = activeSummarizer !== fallbackSummarizer &&
+                                activeSummarizer !is ExtractiveSummarizer
+                        }
+                        stages += "summarize:OK"
+                        result
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: CapabilityBusyException) {
+                        stages += "summarize:BUSY"
+                        CapabilityProbe.logDemotion("summarizer", Tier.FULL, Tier.CORE)
+                        if (activeSummarizer !== fallbackSummarizer) {
+                            val fallbackResult = fallbackSummarizer.summarize(currentNote.transcript)
+                            stages += "summarize_fallback:OK"
+                            fallbackResult
+                        } else {
+                            null
+                        }
+                    }
+                    currentNote = if (ts != null) {
+                        currentNote.copy(
+                            title = ts.title,
+                            summary = ts.summary,
+                            stageStatus = stages.joinToString(",")
                         )
                     } else {
-                        raw
+                        currentNote.copy(stageStatus = stages.joinToString(","))
                     }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    stages += "summarize:FAILED"
+                    currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
                 }
-                if (assignment != null) {
-                    resolvedAssignmentTier = assignment.tier
-                    // Ensure the assigned bucket exists as a Bucket row in the database
-                    if (dao != null && dao.bucketByKind(assignment.bucketKind) == null) {
-                        val def = profile.buckets.firstOrNull { it.kind == assignment.bucketKind }
-                        dao.insertBuckets(
-                            listOf(
-                                Bucket(
-                                    kind = assignment.bucketKind,
-                                    name = def?.name ?: assignment.bucketKind
+                dao?.update(currentNote)
+
+                // Stage 3: actions — independently caught, idempotently replaced, and persisted
+                val sessionForExtractor = sessionForStage(extractor, activeSession, sharedClient)
+                val extractorReady = probedActionsStatus == CapabilityStatus.AVAILABLE &&
+                    (sessionForExtractor?.checkStatus() ?: extractor.status()) == CapabilityStatus.AVAILABLE
+                val activeExtractor = if (extractorReady) extractor else fallbackExtractor
+                var stage3ModelSucceeded = false
+                try {
+                    val extracted = try {
+                        val result: List<ExtractedAction>
+                        if (activeExtractor is NanoActionExtractor) {
+                            val (extractedItems, extractorTier) = activeExtractor.extractWithTier(
+                                transcript = currentNote.transcript,
+                                session = sessionForExtractor
+                            )
+                            result = extractedItems
+                            stage3ModelSucceeded = extractorTier == Tier.FULL
+                        } else {
+                            result = activeExtractor.extract(currentNote.transcript)
+                            stage3ModelSucceeded = activeExtractor !== fallbackExtractor &&
+                                activeExtractor !is HeuristicActionExtractor
+                        }
+                        stages += "actions:OK"
+                        result
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: CapabilityBusyException) {
+                        stages += "actions:BUSY"
+                        CapabilityProbe.logDemotion("actions", Tier.FULL, Tier.CORE)
+                        if (activeExtractor !== fallbackExtractor) {
+                            val fallbackResult = fallbackExtractor.extract(currentNote.transcript)
+                            stages += "actions_fallback:OK"
+                            fallbackResult
+                        } else {
+                            null
+                        }
+                    }
+                    if (extracted != null) {
+                        val existingByText = dao?.actionsFor(currentNote.id)
+                            ?.associateBy { it.text.trim() }
+                            .orEmpty()
+                        val deduplicated = extracted
+                            .map { it.copy(text = it.text.trim()) }
+                            .filter { it.text.isNotEmpty() }
+                            .distinctBy { it.text }
+                            .map { item ->
+                                val existing = existingByText[item.text]
+                                ActionItem(
+                                    noteId = currentNote.id,
+                                    text = item.text,
+                                    dueAtEpochMs = item.dueAtEpochMs,
+                                    done = existing?.done ?: false
+                                )
+                            }
+                        dao?.deleteActionsForNote(currentNote.id)
+                        if (deduplicated.isNotEmpty()) {
+                            dao?.insertActions(deduplicated)
+                        }
+                        persistedActions = dao?.actionsFor(currentNote.id) ?: deduplicated
+                    }
+                    currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    stages += "actions:FAILED"
+                    currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
+                }
+                dao?.update(currentNote)
+
+                // Stage 4: bucket + tags — independently caught, idempotently replaced, and persisted
+                val sessionForBucketer = sessionForStage(bucketer, activeSession, sharedClient)
+                val bucketerReady = probedSummarizerStatus == CapabilityStatus.AVAILABLE &&
+                    (sessionForBucketer?.checkStatus() ?: bucketer.status()) == CapabilityStatus.AVAILABLE
+                val activeBucketer = if (bucketerReady) bucketer else fallbackBucketer
+                var stage4ModelSucceeded = false
+                var resolvedAssignmentTier: Tier? = null
+                try {
+                    val rawAssignment = try {
+                        val result = if (activeBucketer is NanoBucketer) {
+                            activeBucketer.assignWithSession(
+                                transcript = currentNote.transcript,
+                                profile = profile,
+                                session = sessionForBucketer
+                            )
+                        } else {
+                            activeBucketer.assign(currentNote.transcript, profile)
+                        }
+                        stages += "bucket:OK"
+                        stage4ModelSucceeded = activeBucketer !== fallbackBucketer &&
+                            activeBucketer !is HeuristicBucketer &&
+                            result.tier == Tier.FULL
+                        result
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: CapabilityBusyException) {
+                        stages += "bucket:BUSY"
+                        CapabilityProbe.logDemotion("bucketer", Tier.FULL, Tier.CORE)
+                        if (activeBucketer !== fallbackBucketer) {
+                            val fallbackResult = fallbackBucketer.assign(currentNote.transcript, profile)
+                            stages += "bucket_fallback:OK"
+                            fallbackResult
+                        } else {
+                            null
+                        }
+                    }
+                    val assignment = rawAssignment?.let { raw ->
+                        if (
+                            raw.bucketKind == "INBOX" &&
+                            persistedActions.isNotEmpty() &&
+                            profile.buckets.any { it.kind == "TASK" }
+                        ) {
+                            raw.copy(
+                                bucketKind = "TASK",
+                                confidence = 0.8f,
+                                score = persistedActions.size,
+                                needsReview = false
+                            )
+                        } else {
+                            raw
+                        }
+                    }
+                    if (assignment != null) {
+                        resolvedAssignmentTier = assignment.tier
+                        // Ensure the assigned bucket exists as a Bucket row in the database
+                        if (dao != null && dao.bucketByKind(assignment.bucketKind) == null) {
+                            val def = profile.buckets.firstOrNull { it.kind == assignment.bucketKind }
+                            dao.insertBuckets(
+                                listOf(
+                                    Bucket(
+                                        kind = assignment.bucketKind,
+                                        name = def?.name ?: assignment.bucketKind
+                                    )
                                 )
                             )
+                        }
+
+                        val distinctTags = assignment.tags
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .distinct()
+                            .sorted()
+                        dao?.deleteNoteTagsForNote(currentNote.id)
+                        if (distinctTags.isNotEmpty()) {
+                            dao?.insertTags(distinctTags.map { Tag(it) })
+                            dao?.insertNoteTags(distinctTags.map { NoteTag(noteId = currentNote.id, tagName = it) })
+                        }
+                        persistedTags = dao?.tagsFor(currentNote.id) ?: distinctTags
+                        val hadStageDegradation = stages.any { it.endsWith(":BUSY") || it.endsWith(":FAILED") }
+                        val weakBucketEvidence = assignment.needsReview ||
+                            assignment.bucketKind == "INBOX" ||
+                            assignment.confidence < 0.7f ||
+                            assignment.score <= 0
+                        val finalStatus = if (hadStageDegradation || weakBucketEvidence) {
+                            NoteStatus.NEEDS_REVIEW.name
+                        } else {
+                            NoteStatus.SORTED.name
+                        }
+                        val resolvedTier = resolvePipelineTier(
+                            transcriptTier = transcript.tier,
+                            anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
+                            assignmentTier = assignment.tier
+                        )
+                        currentNote = currentNote.copy(
+                            bucketKind = assignment.bucketKind,
+                            tierUsed = resolvedTier.name,
+                            stageStatus = stages.joinToString(","),
+                            status = finalStatus
+                        )
+                    } else {
+                        val resolvedTier = resolvePipelineTier(
+                            transcriptTier = transcript.tier,
+                            anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
+                            assignmentTier = null
+                        )
+                        currentNote = currentNote.copy(
+                            tierUsed = resolvedTier.name,
+                            stageStatus = stages.joinToString(","),
+                            status = NoteStatus.NEEDS_REVIEW.name
                         )
                     }
-
-                    val distinctTags = assignment.tags
-                        .map { it.trim() }
-                        .filter { it.isNotEmpty() }
-                        .distinct()
-                        .sorted()
-                    dao?.deleteNoteTagsForNote(currentNote.id)
-                    if (distinctTags.isNotEmpty()) {
-                        dao?.insertTags(distinctTags.map { Tag(it) })
-                        dao?.insertNoteTags(distinctTags.map { NoteTag(noteId = currentNote.id, tagName = it) })
-                    }
-                    persistedTags = dao?.tagsFor(currentNote.id) ?: distinctTags
-                    val hadStageDegradation = stages.any { it.endsWith(":BUSY") || it.endsWith(":FAILED") }
-                    val weakBucketEvidence = assignment.needsReview ||
-                        assignment.bucketKind == "INBOX" ||
-                        assignment.confidence < 0.7f ||
-                        assignment.score <= 0
-                    val finalStatus = if (hadStageDegradation || weakBucketEvidence) {
-                        NoteStatus.NEEDS_REVIEW.name
-                    } else {
-                        NoteStatus.SORTED.name
-                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    stages += "bucket:FAILED"
                     val resolvedTier = resolvePipelineTier(
                         transcriptTier = transcript.tier,
                         anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
-                        assignmentTier = assignment.tier
-                    )
-                    currentNote = currentNote.copy(
-                        bucketKind = assignment.bucketKind,
-                        tierUsed = resolvedTier.name,
-                        stageStatus = stages.joinToString(","),
-                        status = finalStatus
-                    )
-                } else {
-                    val resolvedTier = resolvePipelineTier(
-                        transcriptTier = transcript.tier,
-                        anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
-                        assignmentTier = null
+                        assignmentTier = resolvedAssignmentTier
                     )
                     currentNote = currentNote.copy(
                         tierUsed = resolvedTier.name,
@@ -447,22 +502,17 @@ class SortingWorker(
                         status = NoteStatus.NEEDS_REVIEW.name
                     )
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                stages += "bucket:FAILED"
-                val resolvedTier = resolvePipelineTier(
-                    transcriptTier = transcript.tier,
-                    anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
-                    assignmentTier = resolvedAssignmentTier
-                )
-                currentNote = currentNote.copy(
-                    tierUsed = resolvedTier.name,
-                    stageStatus = stages.joinToString(","),
-                    status = NoteStatus.NEEDS_REVIEW.name
-                )
+                dao?.update(currentNote)
+            } finally {
+                if (activeSession != null) {
+                    withContext(NonCancellable) {
+                        runCatching { activeSession.clearImplicitCaches() }
+                        if (ownedSession != null) {
+                            runCatching { ownedSession.close() }
+                        }
+                    }
+                }
             }
-            dao?.update(currentNote)
 
             // Stage 5 (embed) is Tier 3 / v1.1; FTS is maintained by Room.
 
@@ -471,6 +521,42 @@ class SortingWorker(
                 extractedActions = persistedActions,
                 tags = persistedTags
             )
+        }
+
+        private fun resolveSharedNanoClient(
+            probedSummarizerStatus: CapabilityStatus,
+            probedActionsStatus: CapabilityStatus,
+            summarizer: Summarizer,
+            extractor: ActionExtractor,
+            bucketer: Bucketer
+        ): GenAiPromptClient? {
+            if (probedSummarizerStatus == CapabilityStatus.AVAILABLE) {
+                (summarizer as? NanoSummarizer)?.promptClient?.let { return it }
+                (bucketer as? NanoBucketer)?.promptClient?.let { return it }
+            }
+            if (probedActionsStatus == CapabilityStatus.AVAILABLE) {
+                (extractor as? NanoActionExtractor)?.promptClient?.let { return it }
+            }
+            return null
+        }
+
+        private fun sessionForStage(
+            stage: Any,
+            activeSession: GenAiPromptSession?,
+            sharedClient: GenAiPromptClient?
+        ): GenAiPromptSession? {
+            if (activeSession == null) return null
+            val stageClient = when (stage) {
+                is NanoSummarizer -> stage.promptClient
+                is NanoActionExtractor -> stage.promptClient
+                is NanoBucketer -> stage.promptClient
+                else -> return null
+            }
+            return if (sharedClient == null || stageClient === sharedClient) {
+                activeSession
+            } else {
+                null
+            }
         }
 
         private fun resolvePipelineTier(
