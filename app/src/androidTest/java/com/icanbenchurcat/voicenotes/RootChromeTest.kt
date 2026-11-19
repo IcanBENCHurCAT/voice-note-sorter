@@ -17,6 +17,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.icanbenchurcat.voicenotes.ui.RootTopAppBar
 import com.icanbenchurcat.voicenotes.ui.theme.VoiceNoteSorterTheme
 import org.junit.Assert.assertTrue
 import org.junit.Rule

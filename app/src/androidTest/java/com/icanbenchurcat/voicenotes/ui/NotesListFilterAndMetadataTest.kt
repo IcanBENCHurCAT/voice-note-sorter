@@ -2,12 +2,24 @@
 
 package com.icanbenchurcat.voicenotes.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.Bucket
@@ -15,6 +27,8 @@ import com.icanbenchurcat.voicenotes.data.Note
 import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -283,5 +297,138 @@ class NotesListFilterAndMetadataTest {
         ).assertIsDisplayed()
         composeTestRule.onNodeWithText("Device capability:", substring = true).assertDoesNotExist()
         composeTestRule.onNodeWithText("Settings").assertDoesNotExist()
+    }
+
+    @Test
+    fun filterChips_meet48dpTouchTarget_showLeadingCheckmark_andNeedsReviewUnclipped() {
+        val notes = listOf(
+            Note(id = 1L, createdAtEpochMs = 1000L, audioPath = "/1.m4a", title = "Idea", bucketKind = "IDEA", status = NoteStatus.SORTED.name),
+            Note(id = 2L, createdAtEpochMs = 2000L, audioPath = "/2.m4a", title = "Task", bucketKind = "TASK", status = NoteStatus.NEEDS_REVIEW.name),
+            Note(id = 3L, createdAtEpochMs = 3000L, audioPath = "/3.m4a", title = "List", bucketKind = "LIST", status = NoteStatus.SORTED.name),
+            Note(id = 4L, createdAtEpochMs = 4000L, audioPath = "/4.m4a", title = "Note", bucketKind = "NOTE", status = NoteStatus.SORTED.name),
+            Note(id = 5L, createdAtEpochMs = 5000L, audioPath = "/5.m4a", title = "Inbox 1", bucketKind = "INBOX", status = NoteStatus.SORTED.name),
+            Note(id = 6L, createdAtEpochMs = 6000L, audioPath = "/6.m4a", title = "Inbox 2", bucketKind = "INBOX", status = NoteStatus.NEEDS_REVIEW.name)
+        )
+        val buckets = listOf(
+            Bucket("IDEA", "Ideas"),
+            Bucket("TASK", "Tasks"),
+            Bucket("LIST", "Lists"),
+            Bucket("NOTE", "Notes"),
+            Bucket("INBOX", "Inbox")
+        )
+        var density: Density? = null
+
+        composeTestRule.setContent {
+            density = LocalDensity.current
+            Box(modifier = Modifier.width(360.dp)) {
+                NotesListScreen(
+                    notes = notes,
+                    buckets = buckets,
+                    tags = listOf("errands"),
+                    noteTags = listOf(NoteTag(noteId = 2L, tagName = "errands")),
+                    onOpen = {}
+                )
+            }
+        }
+
+        // Manage buckets is no longer inside NotesListScreen's filter strip
+        composeTestRule.onNodeWithText("Manage buckets").assertDoesNotExist()
+
+        // All and Needs review chips show counts, meet >= 48dp touch height, and are unclipped at 360dp width
+        val allChip = composeTestRule.onNodeWithContentDescription("Filter all notes")
+        val needsReviewChip = composeTestRule.onNodeWithContentDescription("Filter Needs Review notes")
+        composeTestRule.onNodeWithText("All (6)").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Needs review (2)").assertIsDisplayed()
+        allChip.assertHeightIsAtLeast(48.dp)
+        needsReviewChip.assertHeightIsAtLeast(48.dp)
+
+        val maxRightPx = with(density!!) { 360.dp.toPx() }
+        val needsReviewBounds = needsReviewChip.fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "Needs review chip right edge (${needsReviewBounds.right}) exceeds 360dp ($maxRightPx)",
+            needsReviewBounds.right <= maxRightPx + 0.5f
+        )
+
+        // Active All chip displays leading checkmark icon; inactive Needs review chip does not
+        composeTestRule.onNode(
+            hasTestTag("filter_chip_selected_icon") and hasAnyAncestor(hasContentDescription("Filter all notes")),
+            useUnmergedTree = true
+        ).assertIsDisplayed()
+        composeTestRule.onNode(
+            hasTestTag("filter_chip_selected_icon") and hasAnyAncestor(hasContentDescription("Filter Needs Review notes")),
+            useUnmergedTree = true
+        ).assertDoesNotExist()
+
+        // Selecting Needs review activates its leading checkmark and stays unclipped
+        needsReviewChip.performClick()
+        composeTestRule.onNode(
+            hasTestTag("filter_chip_selected_icon") and hasAnyAncestor(hasContentDescription("Filter Needs Review notes")),
+            useUnmergedTree = true
+        ).assertIsDisplayed()
+        composeTestRule.onNode(
+            hasTestTag("filter_chip_selected_icon") and hasAnyAncestor(hasContentDescription("Filter all notes")),
+            useUnmergedTree = true
+        ).assertDoesNotExist()
+        val selectedNeedsReviewBounds = needsReviewChip.fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "Selected Needs review chip right edge (${selectedNeedsReviewBounds.right}) exceeds 360dp ($maxRightPx)",
+            selectedNeedsReviewBounds.right <= maxRightPx + 0.5f
+        )
+
+        // Bucket chip meets >= 48dp and displays leading checkmark when selected
+        val tasksChip = composeTestRule.onNodeWithContentDescription("Filter by bucket Tasks")
+        tasksChip.performScrollTo().assertHeightIsAtLeast(48.dp).performClick()
+        composeTestRule.onNode(
+            hasTestTag("filter_chip_selected_icon") and hasAnyAncestor(hasContentDescription("Filter by bucket Tasks")),
+            useUnmergedTree = true
+        ).assertIsDisplayed()
+
+        // Tag chip meets >= 48dp and displays leading checkmark when selected
+        val tagChip = composeTestRule.onNodeWithContentDescription("Filter by tag errands")
+        tagChip.assertHeightIsAtLeast(48.dp).performClick()
+        composeTestRule.onNode(
+            hasTestTag("filter_chip_selected_icon") and hasAnyAncestor(hasContentDescription("Filter by tag errands")),
+            useUnmergedTree = true
+        ).assertIsDisplayed()
+    }
+
+    @Test
+    fun needsReviewBadge_usesTertiaryTonalTokensInsteadOfErrorRed() {
+        var scheme: ColorScheme? = null
+        val reviewNote = Note(
+            id = 77L,
+            createdAtEpochMs = 1000L,
+            audioPath = "/77.m4a",
+            title = "Needs Triage",
+            bucketKind = "INBOX",
+            status = NoteStatus.NEEDS_REVIEW.name
+        )
+
+        composeTestRule.setContent {
+            scheme = MaterialTheme.colorScheme
+            NotesListScreen(notes = listOf(reviewNote), onOpen = {})
+        }
+
+        val currentScheme = scheme!!
+        val (containerColor, labelColor) = needsReviewBadgeColorTokens(currentScheme)
+        assertEquals(currentScheme.tertiaryContainer, containerColor)
+        assertEquals(currentScheme.onTertiaryContainer, labelColor)
+        assertNotEquals(currentScheme.errorContainer, containerColor)
+        composeTestRule.onNodeWithContentDescription("Needs review badge").assertIsDisplayed()
+    }
+
+    @Test
+    fun rootTopAppBar_exposesManageBucketsInOverflowMenu() {
+        var manageBucketsClicked = false
+
+        composeTestRule.setContent {
+            RootTopAppBar(onManageBuckets = { manageBucketsClicked = true })
+        }
+
+        val overflowButton = composeTestRule.onNodeWithContentDescription("More options")
+        overflowButton.assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
+
+        composeTestRule.onNodeWithText("Manage buckets").assertIsDisplayed().performClick()
+        assertTrue(manageBucketsClicked)
     }
 }

@@ -54,6 +54,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -83,10 +84,13 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.ui.graphics.Color
 import com.icanbenchurcat.voicenotes.data.ActionItem
 import com.icanbenchurcat.voicenotes.data.ActionItemWithNote
 import com.icanbenchurcat.voicenotes.data.Bucket
@@ -103,6 +107,114 @@ import com.icanbenchurcat.voicenotes.audio.PlaybackStatus
 import com.icanbenchurcat.voicenotes.audio.rememberAudioPlayerState
 import kotlinx.coroutines.launch
 
+/**
+ * Top app bar for root tabs (Notes / Tasks), separating structural actions such as
+ * bucket management and settings from the scrollable filter chip strip.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RootTopAppBar(
+    onManageBuckets: () -> Unit = {},
+    onOpenSettings: (() -> Unit)? = null,
+    developerActions: @Composable RowScope.() -> Unit = {}
+) {
+    var showOverflowMenu by remember { mutableStateOf(false) }
+
+    TopAppBar(
+        title = { Text(stringResource(R.string.app_name)) },
+        actions = {
+            developerActions()
+            if (onOpenSettings != null) {
+                val settingsDesc = stringResource(R.string.action_settings)
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .semantics { contentDescription = settingsDesc }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = null
+                    )
+                }
+            }
+            Box {
+                IconButton(
+                    onClick = { showOverflowMenu = true },
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
+                        .semantics { contentDescription = "More options" }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = null
+                    )
+                }
+                DropdownMenu(
+                    expanded = showOverflowMenu,
+                    onDismissRequest = { showOverflowMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.action_manage_buckets)) },
+                        onClick = {
+                            showOverflowMenu = false
+                            onManageBuckets()
+                        },
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .semantics { contentDescription = "Manage buckets" }
+                    )
+                    if (onOpenSettings != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_settings)) },
+                            onClick = {
+                                showOverflowMenu = false
+                                onOpenSettings()
+                            },
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 48.dp)
+                                .semantics { contentDescription = "Open settings" }
+                        )
+                    }
+                }
+            }
+        }
+    )
+}
+
+internal fun needsReviewBadgeColorTokens(colorScheme: ColorScheme): Pair<Color, Color> =
+    colorScheme.tertiaryContainer to colorScheme.onTertiaryContainer
+
+@Composable
+private fun NoteFilterChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    labelText: String,
+    contentDesc: String
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        leadingIcon = if (selected) {
+            {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(FilterChipDefaults.IconSize)
+                        .testTag("filter_chip_selected_icon")
+                )
+            }
+        } else {
+            null
+        },
+        label = { Text(labelText) },
+        modifier = Modifier
+            .defaultMinSize(minHeight = 48.dp)
+            .semantics { contentDescription = contentDesc }
+    )
+}
+
 /** Notes list: filed cards, newest first. The bucket chip and the tier
  *  marker are shown on purpose - the demo value of this app is that the
  *  user (and the developer reading the code) can see what the ladder did. */
@@ -115,7 +227,6 @@ fun NotesListScreen(
     tasks: List<ActionItemWithNote> = emptyList(),
     tags: List<String> = emptyList(),
     noteTags: List<NoteTag> = emptyList(),
-    onManageBuckets: (() -> Unit)? = null,
     onOpen: (Note) -> Unit
 ) {
     var selectedBucketKind by rememberSaveable { mutableStateOf<String?>(null) }
@@ -226,69 +337,52 @@ fun NotesListScreen(
             }
         )
 
-        // Horizontal filter bar: All, Needs Review, Bucket chips, and Manage Buckets
+        // Horizontal filter bar: All, Needs review, and bucket chips
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val isAllSelected = selectedBucketKind == null && !filterNeedsReviewOnly && selectedTag == null
-                FilterChip(
-                    selected = isAllSelected,
-                    onClick = {
+            val isAllSelected = selectedBucketKind == null && !filterNeedsReviewOnly && selectedTag == null
+            NoteFilterChip(
+                selected = isAllSelected,
+                onClick = {
+                    selectedBucketKind = null
+                    filterNeedsReviewOnly = false
+                    selectedTag = null
+                },
+                labelText = "All (${notes.size})",
+                contentDesc = "Filter all notes"
+            )
+            NoteFilterChip(
+                selected = filterNeedsReviewOnly,
+                onClick = {
+                    filterNeedsReviewOnly = !filterNeedsReviewOnly
+                    if (filterNeedsReviewOnly) {
                         selectedBucketKind = null
-                        filterNeedsReviewOnly = false
                         selectedTag = null
-                    },
-                    label = { Text("All (${notes.size})") },
-                    modifier = Modifier.semantics { contentDescription = "Filter all notes" }
-                )
-                FilterChip(
-                    selected = filterNeedsReviewOnly,
+                    }
+                },
+                labelText = "Needs review ($needsReviewCount)",
+                contentDesc = "Filter Needs Review notes"
+            )
+            effectiveBuckets.forEach { b ->
+                val bucketCount = notes.count { it.bucketKind == b.kind }
+                val isBucketSelected = selectedBucketKind == b.kind
+                NoteFilterChip(
+                    selected = isBucketSelected,
                     onClick = {
-                        filterNeedsReviewOnly = !filterNeedsReviewOnly
-                        if (filterNeedsReviewOnly) {
-                            selectedBucketKind = null
-                            selectedTag = null
+                        selectedBucketKind = if (isBucketSelected) null else b.kind
+                        if (selectedBucketKind != null) {
+                            filterNeedsReviewOnly = false
                         }
                     },
-                    label = { Text("Needs review ($needsReviewCount)") },
-                    modifier = Modifier.semantics { contentDescription = "Filter Needs Review notes" }
+                    labelText = "${b.name} ($bucketCount)",
+                    contentDesc = "Filter by bucket ${b.name}"
                 )
-                effectiveBuckets.forEach { b ->
-                    val bucketCount = notes.count { it.bucketKind == b.kind }
-                    val isBucketSelected = selectedBucketKind == b.kind
-                    FilterChip(
-                        selected = isBucketSelected,
-                        onClick = {
-                            selectedBucketKind = if (isBucketSelected) null else b.kind
-                            if (selectedBucketKind != null) {
-                                filterNeedsReviewOnly = false
-                            }
-                        },
-                        label = { Text("${b.name} ($bucketCount)") },
-                        modifier = Modifier.semantics { contentDescription = "Filter by bucket ${b.name}" }
-                    )
-                }
-            }
-            if (onManageBuckets != null) {
-                OutlinedButton(
-                    onClick = onManageBuckets,
-                    modifier = Modifier
-                        .padding(start = 8.dp)
-                        .semantics { contentDescription = "Manage buckets" }
-                ) {
-                    Text(stringResource(R.string.action_manage_buckets))
-                }
             }
         }
 
@@ -297,8 +391,8 @@ fun NotesListScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 2.dp)
-                    .horizontalScroll(rememberScrollState()),
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -309,7 +403,7 @@ fun NotesListScreen(
                 )
                 tags.forEach { tagName ->
                     val isSelected = selectedTag == tagName
-                    FilterChip(
+                    NoteFilterChip(
                         selected = isSelected,
                         onClick = {
                             selectedTag = if (isSelected) null else tagName
@@ -317,8 +411,8 @@ fun NotesListScreen(
                                 filterNeedsReviewOnly = false
                             }
                         },
-                        label = { Text("#$tagName") },
-                        modifier = Modifier.semantics { contentDescription = "Filter by tag $tagName" }
+                        labelText = "#$tagName",
+                        contentDesc = "Filter by tag $tagName"
                     )
                 }
             }
@@ -446,6 +540,7 @@ fun NotesListScreen(
                             )
 
                             if (note.status == NoteStatus.NEEDS_REVIEW.name) {
+                                val (badgeContainerColor, badgeLabelColor) = needsReviewBadgeColorTokens(MaterialTheme.colorScheme)
                                 SuggestionChip(
                                     onClick = { onOpen(note) },
                                     label = {
@@ -455,8 +550,8 @@ fun NotesListScreen(
                                         )
                                     },
                                     colors = SuggestionChipDefaults.suggestionChipColors(
-                                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                                        labelColor = MaterialTheme.colorScheme.onErrorContainer
+                                        containerColor = badgeContainerColor,
+                                        labelColor = badgeLabelColor
                                     ),
                                     border = null,
                                     modifier = Modifier.semantics { contentDescription = "Needs review badge" }

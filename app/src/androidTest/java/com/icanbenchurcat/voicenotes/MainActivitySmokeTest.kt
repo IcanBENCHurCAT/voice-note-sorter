@@ -192,4 +192,12 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithText("No tasks yet. Action items extracted from voice notes will appear here.")
             .assertIsDisplayed()
     }
+
+    @Test
+    fun topAppBarOverflow_opensManageBucketsDialog() {
+        composeRule.onNodeWithText("Manage buckets").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("More options").assertIsDisplayed().performClick()
+        composeRule.onNodeWithContentDescription("Manage buckets").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Manage Buckets").assertIsDisplayed()
+    }
 }
