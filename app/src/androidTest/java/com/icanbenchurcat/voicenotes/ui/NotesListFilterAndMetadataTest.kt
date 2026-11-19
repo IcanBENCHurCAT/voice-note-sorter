@@ -8,6 +8,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
@@ -15,9 +16,11 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -430,5 +433,88 @@ class NotesListFilterAndMetadataTest {
 
         composeTestRule.onNodeWithText("Manage buckets").assertIsDisplayed().performClick()
         assertTrue(manageBucketsClicked)
+    }
+
+    @Test
+    fun notesList_rendersSearchBarWithLeadingIcon_andScopedTagsDuringNeedsReviewFilter() {
+        val reviewNote = Note(
+            id = 1L,
+            createdAtEpochMs = 1000L,
+            audioPath = "/fake/1.m4a",
+            title = "Kitchen electrical work",
+            summary = "Call electrician",
+            bucketKind = "TASK",
+            status = NoteStatus.NEEDS_REVIEW.name
+        )
+        val sortedNote = Note(
+            id = 2L,
+            createdAtEpochMs = 2000L,
+            audioPath = "/fake/2.m4a",
+            title = "Grocery run",
+            summary = "Buy milk and bread",
+            bucketKind = "LIST",
+            status = NoteStatus.SORTED.name
+        )
+        val noteTags = listOf(
+            NoteTag(noteId = 1L, tagName = "errands"),
+            NoteTag(noteId = 2L, tagName = "groceries"),
+            NoteTag(noteId = 2L, tagName = "product")
+        )
+
+        composeTestRule.setContent {
+            NotesListScreen(
+                notes = listOf(reviewNote, sortedNote),
+                tags = listOf("errands", "groceries", "product"),
+                noteTags = noteTags,
+                onOpen = {}
+            )
+        }
+
+        // Rounded search bar with leading Search icon is displayed
+        composeTestRule.onNodeWithTag("notes_search_field").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("notes_search_icon", useUnmergedTree = true).assertIsDisplayed()
+
+        // Direct bucket filter chip is visible without Manage Buckets blocking it
+        composeTestRule.onNodeWithContentDescription("Filter by bucket Ideas").assertIsDisplayed()
+
+        // Initially all tags are visible
+        composeTestRule.onNodeWithContentDescription("Filter by tag errands").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Filter by tag groceries").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Filter by tag product").assertIsDisplayed()
+
+        // Filter to Needs review -> irrelevant tags from sorted notes disappear
+        composeTestRule.onNodeWithContentDescription("Filter Needs Review notes").performClick()
+        composeTestRule.onNodeWithContentDescription("Filter by tag errands").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Filter by tag groceries").assertDoesNotExist()
+        composeTestRule.onNodeWithContentDescription("Filter by tag product").assertDoesNotExist()
+    }
+
+    @Test
+    fun noteCard_longSummary_truncatesWithEllipsisAtTwoLines() {
+        val longSummary = "Concept for a modular voice note sorting pipeline with an open core and extension seams for closed plugins across multiple local device capability tiers."
+        val note = Note(
+            id = 7L,
+            createdAtEpochMs = 1000L,
+            audioPath = "/fake/7.m4a",
+            title = "Modular voice note sorting pipeline",
+            summary = longSummary,
+            bucketKind = "IDEA",
+            status = NoteStatus.SORTED.name
+        )
+
+        composeTestRule.setContent {
+            NotesListScreen(
+                notes = listOf(note),
+                onOpen = {}
+            )
+        }
+
+        val node = composeTestRule.onNodeWithTag("notes_summary_7", useUnmergedTree = true).fetchSemanticsNode()
+        val layoutResults = mutableListOf<TextLayoutResult>()
+        node.config[SemanticsActions.GetTextLayoutResult].action?.invoke(layoutResults)
+        assertTrue("Expected text layout result for summary", layoutResults.isNotEmpty())
+        val layout = layoutResults.first()
+        assertTrue("Expected summary to truncate at 2 lines", layout.lineCount <= 2)
+        assertTrue("Expected truncated summary to report visual overflow/ellipsis", layout.isLineEllipsized(layout.lineCount - 1))
     }
 }

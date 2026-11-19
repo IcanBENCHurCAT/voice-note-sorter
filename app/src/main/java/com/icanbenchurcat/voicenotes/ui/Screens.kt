@@ -28,9 +28,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Scaffold
@@ -48,14 +48,18 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.Composable
@@ -211,6 +215,11 @@ private fun NoteFilterChip(
             null
         },
         label = { Text(labelText) },
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = MaterialTheme.colorScheme.outline
+        ),
         modifier = Modifier
             .defaultMinSize(minHeight = 48.dp)
             .semantics { contentDescription = contentDesc }
@@ -269,6 +278,15 @@ fun NotesListScreen(
         DefaultBucketProfileProvider.profile().buckets.map { Bucket(kind = it.kind, name = it.name) }
     }
 
+    val visibleTags = remember(tags, displayedNotes, noteTags, selectedTag) {
+        NoteCardFormatting.scopeVisibleTags(
+            allTags = tags,
+            visibleNoteIds = displayedNotes.mapTo(HashSet()) { it.id },
+            noteTags = noteTags,
+            selectedTag = selectedTag
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         if (isLibraryEmpty) {
@@ -316,24 +334,51 @@ fun NotesListScreen(
             return
         }
 
+        // Rounded SearchBar-style input
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .testTag("notes_search_field")
                 .semantics { contentDescription = "Search notes" },
-            placeholder = { Text(stringResource(R.string.search_hint)) },
+            shape = RoundedCornerShape(28.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                focusedBorderColor = MaterialTheme.colorScheme.primary
+            ),
+            placeholder = {
+                Text(
+                    text = stringResource(R.string.search_hint),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("notes_search_icon")
+                )
+            },
             singleLine = true,
             trailingIcon = {
                 if (isSearching) {
-                    TextButton(
+                    IconButton(
                         onClick = { onSearchQueryChange("") },
                         modifier = Modifier.semantics {
                             contentDescription = "Clear search"
                         }
                     ) {
-                        Text("✕")
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -388,8 +433,8 @@ fun NotesListScreen(
             }
         }
 
-        // Tag filter chips (if tags exist in library)
-        if (tags.isNotEmpty()) {
+        // Contextual tag filter chips scoped to visible notes
+        if (visibleTags.isNotEmpty()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -401,9 +446,9 @@ fun NotesListScreen(
                 Text(
                     text = "Tags:",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                tags.forEach { tagName ->
+                visibleTags.forEach { tagName ->
                     val isSelected = selectedTag == tagName
                     NoteFilterChip(
                         selected = isSelected,
@@ -505,13 +550,16 @@ fun NotesListScreen(
                             Text(
                                 text = note.title.ifBlank { "Untitled note" },
                                 style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
                             if (formattedTime.isNotBlank()) {
                                 Text(
                                     text = formattedTime,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(start = 8.dp)
                                 )
                             }
@@ -522,7 +570,10 @@ fun NotesListScreen(
                             Text(
                                 text = deduplicatedSummary,
                                 style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 2
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.testTag("notes_summary_${note.id}")
                             )
                         }
 
@@ -537,7 +588,7 @@ fun NotesListScreen(
                             Text(
                                 text = note.bucketKind,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.semantics { contentDescription = metaDesc }
                             )
 
@@ -604,7 +655,7 @@ fun NotesListScreen(
                                     Text(
                                         text = "+$overflowCount",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.outline,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(end = 4.dp)
                                     )
                                 }
@@ -1225,9 +1276,10 @@ fun AudioPlaybackControl(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = 16.dp)
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
     ) {
         Column(
             modifier = Modifier
@@ -1236,16 +1288,33 @@ fun AudioPlaybackControl(
         ) {
             Text(
                 text = stringResource(R.string.audio_playback_title),
-                style = MaterialTheme.typography.titleSmall
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             if (!audioPlaybackState.isFileAvailable || audioPlaybackState.errorMessage != null) {
-                Text(
-                    text = audioPlaybackState.errorMessage ?: stringResource(R.string.audio_missing_error),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .testTag("audio_missing_info_icon")
+                    )
+                    Text(
+                        text = audioPlaybackState.errorMessage ?: stringResource(R.string.audio_missing_error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("audio_missing_caption")
+                    )
+                }
             } else {
                 Row(
                     modifier = Modifier
