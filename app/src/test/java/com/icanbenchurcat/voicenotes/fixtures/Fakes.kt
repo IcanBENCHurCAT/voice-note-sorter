@@ -8,6 +8,7 @@ import com.icanbenchurcat.voicenotes.ai.BucketProfile
 import com.icanbenchurcat.voicenotes.ai.Bucketer
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
+import com.icanbenchurcat.voicenotes.ai.Proofreader
 import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.ai.TitleSummary
@@ -42,6 +43,26 @@ class FakeTranscriber(
     }
 }
 
+class FakeProofreader(
+    private val currentStatus: CapabilityStatus = CapabilityStatus.AVAILABLE,
+    private val result: String? = null,
+    private val exception: Exception? = null,
+    private val transformer: ((String) -> String)? = null
+) : Proofreader {
+    var calls = 0
+        private set
+    var lastInput: String? = null
+        private set
+
+    override suspend fun status(): CapabilityStatus = currentStatus
+    override suspend fun proofread(rawTranscript: String): String {
+        calls++
+        lastInput = rawTranscript
+        if (exception != null) throw exception
+        return transformer?.invoke(rawTranscript) ?: result ?: rawTranscript
+    }
+}
+
 class FakeSummarizer(
     private val currentStatus: CapabilityStatus = CapabilityStatus.AVAILABLE,
     private val result: TitleSummary = TitleSummary("title", "summary"),
@@ -49,10 +70,13 @@ class FakeSummarizer(
 ) : Summarizer {
     var calls = 0
         private set
+    var lastTranscript: String? = null
+        private set
 
     override suspend fun status(): CapabilityStatus = currentStatus
     override suspend fun summarize(transcript: String): TitleSummary {
         calls++
+        lastTranscript = transcript
         if (exception != null) throw exception
         return result
     }
@@ -65,10 +89,13 @@ class FakeActionExtractor(
 ) : ActionExtractor {
     var calls = 0
         private set
+    var lastTranscript: String? = null
+        private set
 
     override suspend fun status(): CapabilityStatus = currentStatus
     override suspend fun extract(transcript: String): List<ExtractedAction> {
         calls++
+        lastTranscript = transcript
         if (exception != null) throw exception
         return items
     }
@@ -81,11 +108,14 @@ class FakeBucketer(
 ) : Bucketer {
     var calls = 0
         private set
+    var lastTranscript: String? = null
+        private set
 
     override suspend fun status(): CapabilityStatus = currentStatus
 
     override suspend fun assign(transcript: String, profile: BucketProfile): BucketAssignment {
         calls++
+        lastTranscript = transcript
         if (exception != null) throw exception
         return assignment
     }

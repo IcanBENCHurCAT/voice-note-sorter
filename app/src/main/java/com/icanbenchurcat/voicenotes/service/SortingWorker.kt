@@ -11,6 +11,7 @@ import com.icanbenchurcat.voicenotes.ai.CapabilityBusyException
 import com.icanbenchurcat.voicenotes.ai.CapabilityProbe
 import com.icanbenchurcat.voicenotes.ai.CapabilityStatus
 import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
+import com.icanbenchurcat.voicenotes.ai.DeterministicTranscriptCleaner
 import com.icanbenchurcat.voicenotes.ai.ExtractiveSummarizer
 import com.icanbenchurcat.voicenotes.ai.ExtractedAction
 import com.icanbenchurcat.voicenotes.ai.GenAiPromptClient
@@ -19,10 +20,12 @@ import com.icanbenchurcat.voicenotes.ai.HeuristicActionExtractor
 import com.icanbenchurcat.voicenotes.ai.HeuristicBucketer
 import com.icanbenchurcat.voicenotes.ai.NanoActionExtractor
 import com.icanbenchurcat.voicenotes.ai.NanoBucketer
+import com.icanbenchurcat.voicenotes.ai.NanoProofreader
 import com.icanbenchurcat.voicenotes.ai.NanoSummarizer
 import com.icanbenchurcat.voicenotes.ai.NanoTranscriber
 import com.icanbenchurcat.voicenotes.ai.NullTranscriber
 import com.icanbenchurcat.voicenotes.ai.PlatformTranscriber
+import com.icanbenchurcat.voicenotes.ai.Proofreader
 import com.icanbenchurcat.voicenotes.ai.Summarizer
 import com.icanbenchurcat.voicenotes.ai.Tier
 import com.icanbenchurcat.voicenotes.ai.TitleSummary
@@ -45,7 +48,8 @@ import kotlinx.coroutines.withContext
 data class PipelineOutcome(
     val updatedNote: Note,
     val extractedActions: List<ActionItem>,
-    val tags: List<String>
+    val tags: List<String>,
+    val workingTranscript: String = updatedNote.transcript
 )
 
 /**
@@ -67,7 +71,9 @@ class SortingWorker(
     private val bucketer: Bucketer,
     private val fallbackSummarizer: Summarizer = ExtractiveSummarizer(),
     private val fallbackExtractor: ActionExtractor = HeuristicActionExtractor(),
-    private val fallbackBucketer: Bucketer = HeuristicBucketer()
+    private val fallbackBucketer: Bucketer = HeuristicBucketer(),
+    private val proofreader: Proofreader? = null,
+    private val fallbackProofreader: Proofreader = DeterministicTranscriptCleaner()
 ) : CoroutineWorker(context, params) {
 
     // Primary constructor for WorkManager
@@ -83,7 +89,9 @@ class SortingWorker(
         bucketer = NanoBucketer(),
         fallbackSummarizer = ExtractiveSummarizer(),
         fallbackExtractor = HeuristicActionExtractor(),
-        fallbackBucketer = HeuristicBucketer()
+        fallbackBucketer = HeuristicBucketer(),
+        proofreader = proofreaderOverride ?: NanoProofreader(),
+        fallbackProofreader = DeterministicTranscriptCleaner()
     )
 
     override suspend fun doWork(): Result {
@@ -104,7 +112,9 @@ class SortingWorker(
             fallbackSummarizer = fallbackSummarizer,
             fallbackExtractor = fallbackExtractor,
             fallbackBucketer = fallbackBucketer,
-            dao = dao
+            dao = dao,
+            proofreader = proofreader,
+            fallbackProofreader = fallbackProofreader
         )
         return Result.success()
     }
@@ -117,6 +127,9 @@ class SortingWorker(
 
         @Volatile
         var transcriberOverride: Transcriber? = null
+
+        @Volatile
+        var proofreaderOverride: Proofreader? = null
 
         suspend fun executePipeline(
             note: Note,
@@ -131,7 +144,9 @@ class SortingWorker(
             fallbackExtractor: ActionExtractor = HeuristicActionExtractor(),
             fallbackBucketer: Bucketer = HeuristicBucketer(),
             dao: NoteDao? = null,
-            promptSession: GenAiPromptSession? = null
+            promptSession: GenAiPromptSession? = null,
+            proofreader: Proofreader? = null,
+            fallbackProofreader: Proofreader = DeterministicTranscriptCleaner()
         ): PipelineOutcome {
             val stages = mutableListOf<String>()
             var currentNote = note
@@ -218,6 +233,66 @@ class SortingWorker(
             )
             dao?.update(currentNote)
 
+            // Proofread stage (between Stage 1 and Stage 2): produces a separate workingTranscript
+            // consumed by Stages 2-4 while leaving Note.transcript immutable verbatim from Stage 1.
+            var workingTranscript = currentNote.transcript
+            var proofreadModelSucceeded = false
+            if (proofreader != null) {
+                val probedProofreaderStatus = capabilityProbe.proofreaderStatus()
+                try {
+                    val proofreadResult = try {
+                        when {
+                            probedProofreaderStatus == CapabilityStatus.BUSY ||
+                                proofreader.status() == CapabilityStatus.BUSY -> {
+                                throw CapabilityBusyException()
+                            }
+                            probedProofreaderStatus == CapabilityStatus.AVAILABLE &&
+                                proofreader.status() == CapabilityStatus.AVAILABLE -> {
+                                val cleaned = if (proofreader is NanoProofreader) {
+                                    val (text, proofreadTier) = proofreader.proofreadWithTier(currentNote.transcript)
+                                    proofreadModelSucceeded = proofreadTier == Tier.FULL
+                                    text
+                                } else {
+                                    val text = proofreader.proofread(currentNote.transcript)
+                                    proofreadModelSucceeded = proofreader !== fallbackProofreader &&
+                                        proofreader !is DeterministicTranscriptCleaner
+                                    text
+                                }
+                                stages += "proofread:OK"
+                                cleaned
+                            }
+                            else -> {
+                                val fallbackText = fallbackProofreader.proofread(currentNote.transcript)
+                                stages += "proofread:OK"
+                                fallbackText
+                            }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: CapabilityBusyException) {
+                        stages += "proofread:BUSY"
+                        CapabilityProbe.logDemotion("proofreader", Tier.FULL, Tier.CORE)
+                        if (proofreader !== fallbackProofreader) {
+                            val fallbackText = fallbackProofreader.proofread(currentNote.transcript)
+                            stages += "proofread_fallback:OK"
+                            fallbackText
+                        } else {
+                            currentNote.transcript
+                        }
+                    }
+                    if (proofreadResult.isNotBlank()) {
+                        workingTranscript = proofreadResult
+                    }
+                    currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    stages += "proofread:FAILED"
+                    currentNote = currentNote.copy(stageStatus = stages.joinToString(","))
+                }
+                dao?.update(currentNote)
+            }
+
             // Stages 2-4 share one prompt session (warmup + SystemInstruction + transcript
             // PromptPrefix caching) whenever at least one Nano prompt stage is probed AVAILABLE.
             val probedSummarizerStatus = capabilityProbe.summarizerStatus()
@@ -266,13 +341,13 @@ class SortingWorker(
                         val result: TitleSummary
                         if (activeSummarizer is NanoSummarizer) {
                             val (summaryResult, summaryTier) = activeSummarizer.summarizeWithTier(
-                                transcript = currentNote.transcript,
+                                transcript = workingTranscript,
                                 session = sessionForSummarizer
                             )
                             result = summaryResult
                             stage2ModelSucceeded = summaryTier == Tier.FULL
                         } else {
-                            result = activeSummarizer.summarize(currentNote.transcript)
+                            result = activeSummarizer.summarize(workingTranscript)
                             stage2ModelSucceeded = activeSummarizer !== fallbackSummarizer &&
                                 activeSummarizer !is ExtractiveSummarizer
                         }
@@ -284,7 +359,7 @@ class SortingWorker(
                         stages += "summarize:BUSY"
                         CapabilityProbe.logDemotion("summarizer", Tier.FULL, Tier.CORE)
                         if (activeSummarizer !== fallbackSummarizer) {
-                            val fallbackResult = fallbackSummarizer.summarize(currentNote.transcript)
+                            val fallbackResult = fallbackSummarizer.summarize(workingTranscript)
                             stages += "summarize_fallback:OK"
                             fallbackResult
                         } else {
@@ -319,13 +394,13 @@ class SortingWorker(
                         val result: List<ExtractedAction>
                         if (activeExtractor is NanoActionExtractor) {
                             val (extractedItems, extractorTier) = activeExtractor.extractWithTier(
-                                transcript = currentNote.transcript,
+                                transcript = workingTranscript,
                                 session = sessionForExtractor
                             )
                             result = extractedItems
                             stage3ModelSucceeded = extractorTier == Tier.FULL
                         } else {
-                            result = activeExtractor.extract(currentNote.transcript)
+                            result = activeExtractor.extract(workingTranscript)
                             stage3ModelSucceeded = activeExtractor !== fallbackExtractor &&
                                 activeExtractor !is HeuristicActionExtractor
                         }
@@ -337,7 +412,7 @@ class SortingWorker(
                         stages += "actions:BUSY"
                         CapabilityProbe.logDemotion("actions", Tier.FULL, Tier.CORE)
                         if (activeExtractor !== fallbackExtractor) {
-                            val fallbackResult = fallbackExtractor.extract(currentNote.transcript)
+                            val fallbackResult = fallbackExtractor.extract(workingTranscript)
                             stages += "actions_fallback:OK"
                             fallbackResult
                         } else {
@@ -387,12 +462,12 @@ class SortingWorker(
                     val rawAssignment = try {
                         val result = if (activeBucketer is NanoBucketer) {
                             activeBucketer.assignWithSession(
-                                transcript = currentNote.transcript,
+                                transcript = workingTranscript,
                                 profile = profile,
                                 session = sessionForBucketer
                             )
                         } else {
-                            activeBucketer.assign(currentNote.transcript, profile)
+                            activeBucketer.assign(workingTranscript, profile)
                         }
                         stages += "bucket:OK"
                         stage4ModelSucceeded = activeBucketer !== fallbackBucketer &&
@@ -405,7 +480,7 @@ class SortingWorker(
                         stages += "bucket:BUSY"
                         CapabilityProbe.logDemotion("bucketer", Tier.FULL, Tier.CORE)
                         if (activeBucketer !== fallbackBucketer) {
-                            val fallbackResult = fallbackBucketer.assign(currentNote.transcript, profile)
+                            val fallbackResult = fallbackBucketer.assign(workingTranscript, profile)
                             stages += "bucket_fallback:OK"
                             fallbackResult
                         } else {
@@ -466,7 +541,7 @@ class SortingWorker(
                         }
                         val resolvedTier = resolvePipelineTier(
                             transcriptTier = transcript.tier,
-                            anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
+                            anyModelStageSucceeded = proofreadModelSucceeded || stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
                             assignmentTier = assignment.tier
                         )
                         currentNote = currentNote.copy(
@@ -478,7 +553,7 @@ class SortingWorker(
                     } else {
                         val resolvedTier = resolvePipelineTier(
                             transcriptTier = transcript.tier,
-                            anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
+                            anyModelStageSucceeded = proofreadModelSucceeded || stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
                             assignmentTier = null
                         )
                         currentNote = currentNote.copy(
@@ -493,7 +568,7 @@ class SortingWorker(
                     stages += "bucket:FAILED"
                     val resolvedTier = resolvePipelineTier(
                         transcriptTier = transcript.tier,
-                        anyModelStageSucceeded = stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
+                        anyModelStageSucceeded = proofreadModelSucceeded || stage2ModelSucceeded || stage3ModelSucceeded || stage4ModelSucceeded,
                         assignmentTier = resolvedAssignmentTier
                     )
                     currentNote = currentNote.copy(
@@ -519,7 +594,8 @@ class SortingWorker(
             return PipelineOutcome(
                 updatedNote = currentNote,
                 extractedActions = persistedActions,
-                tags = persistedTags
+                tags = persistedTags,
+                workingTranscript = workingTranscript
             )
         }
 

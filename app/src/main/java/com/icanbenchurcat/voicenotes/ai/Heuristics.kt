@@ -712,3 +712,66 @@ object PlatformDateParser {
         else -> token.toLongOrNull()
     }
 }
+
+/**
+ * Tier 1/2 proofreading fallback: deterministic whitespace collapse,
+ * sentence-initial capitalization, and terminal punctuation without altering,
+ * adding, or removing any words.
+ */
+class DeterministicTranscriptCleaner : Proofreader {
+    override suspend fun status(): CapabilityStatus = CapabilityStatus.AVAILABLE
+
+    override suspend fun proofread(rawTranscript: String): String = clean(rawTranscript)
+
+    companion object {
+        private val whitespaceRegex = Regex("\\s+")
+        private val openingPunctuation = setOf('"', '\'', '(', '[')
+        private val closingPunctuation = setOf('"', '\'', ')', ']')
+        private val sentenceTerminals = setOf('.', '!', '?')
+
+        fun clean(rawTranscript: String): String {
+            val collapsed = rawTranscript.trim().replace(whitespaceRegex, " ")
+            if (collapsed.isEmpty()) return ""
+
+            val sb = StringBuilder(collapsed.length + 1)
+            var capitalizeNext = true
+            var sawSentenceTerminal = false
+
+            for (ch in collapsed) {
+                if (capitalizeNext) {
+                    if (ch in openingPunctuation) {
+                        sb.append(ch)
+                    } else if (ch.isLowerCase()) {
+                        sb.append(ch.titlecase(Locale.ROOT))
+                        capitalizeNext = false
+                    } else {
+                        sb.append(ch)
+                        capitalizeNext = false
+                    }
+                    sawSentenceTerminal = false
+                    continue
+                }
+
+                sb.append(ch)
+                if (ch in sentenceTerminals) {
+                    sawSentenceTerminal = true
+                } else if (sawSentenceTerminal) {
+                    if (ch.isWhitespace()) {
+                        capitalizeNext = true
+                        sawSentenceTerminal = false
+                    } else if (ch !in closingPunctuation) {
+                        sawSentenceTerminal = false
+                    }
+                }
+            }
+
+            val result = sb.toString()
+            val coreEnd = result.trimEnd { it in closingPunctuation }
+            return if (coreEnd.isNotEmpty() && coreEnd.last() in sentenceTerminals) {
+                result
+            } else {
+                "$result."
+            }
+        }
+    }
+}

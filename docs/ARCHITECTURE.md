@@ -29,21 +29,34 @@ When a recording is stopped, the service persists a new `Note` entity (status `R
 
 ## The sorting pipeline
 
-Five stages, each independently failable and independently tiered:
+Staged, independently failable, and independently tiered:
 
-1. **Transcribe** - speech to text (Nano Advanced / Basic / platform / none)
-2. **Title and summarise** - Tier 3 Prompt API (`GenerateTypedContentRequest`
+1. **Transcribe** - speech to text (Nano Advanced / Basic / platform / none).
+   Persists the raw `Note.transcript` immediately; once stored, `Note.transcript`
+   is immutable across downstream stages.
+2. **Proofread (transcript cleanup)** - runs between Stage 1 and Stage 2 behind
+   the `Proofreader` capability seam (`ADR 0006`): `NanoProofreader` on Tier 3
+   (v1 uses `GenAiPromptClient` / Prompt API path only, while adopting
+   `com.google.mlkit:genai-proofreading` awaits physical hardware verification
+   in `#147`) and `DeterministicTranscriptCleaner` on Tier 1/2 (whitespace
+   collapse, sentence-initial capitalization, and terminal punctuation without
+   altering words). Proofreader output is held as a separate `workingTranscript`
+   consumed by Stages 3-5, leaving `Note.transcript` untouched.
+3. **Title and summarise** - Tier 3 Prompt API (`GenerateTypedContentRequest`
    structured output when supported, automatic plain-text + regex fallback
    otherwise); extractive (`ExtractiveSummarizer`) on Tier 2; timestamp title on Tier 1
-3. **Extract actions** - Tier 3 Prompt API (`GenerateTypedContentRequest`
+   (consumes `workingTranscript`)
+4. **Extract actions** - Tier 3 Prompt API (`GenerateTypedContentRequest`
    structured output when supported, automatic plain-text + regex fallback
    otherwise) with `PlatformDateParser` due-date resolution; pattern
-   heuristics (`HeuristicActionExtractor`) below that
-4. **Bucket and tag** - Tier 3 Prompt API (`GenerateTypedContentRequest`
+   heuristics (`HeuristicActionExtractor`) below that (consumes
+   `workingTranscript`)
+5. **Bucket and tag** - Tier 3 Prompt API (`GenerateTypedContentRequest`
    structured output against the active `BucketProfile` when supported,
    automatic plain-text + regex fallback otherwise); keyword rules
    (`HeuristicBucketer`) below; default bucket is Inbox, never a dead end
-5. **Embed** - planned semantic vectors on Tier 3 (deferred; `NoOpEmbedder` today, search falls back to FTS)
+   (consumes `workingTranscript`)
+6. **Embed** - planned semantic vectors on Tier 3 (deferred; `NoOpEmbedder` today, search falls back to FTS)
 
 When Stages 2–4 run on Tier 3 (`NanoSummarizer`, `NanoActionExtractor`,
 `NanoBucketer`) with a shared `GenAiPromptClient`, `SortingWorker` opens a
@@ -80,7 +93,7 @@ bucket set and rules without forking the pipeline.
 
 Implemented today, in the `ai/` package:
 
-- `Transcriber`, `Summarizer`, `ActionExtractor`, `Bucketer`, `Embedder` - the
+- `Transcriber`, `Proofreader`, `Summarizer`, `ActionExtractor`, `Bucketer`, `Embedder` - the
   capability interfaces; alternative engines can be supplied by an outer
   module at build time. Note that there is no vector store and no embeddings are persisted; search falls back to FTS.
 - `BucketProfileProvider` - supplies bucket sets and filing rules. This
@@ -99,6 +112,8 @@ extracting a dedicated `:extension-api` module.
 Anything behind these seams can be replaced by a downstream module
 without modifying core code. See `docs/adr/0001-open-core-closed-pro-split.md`
 for why the seam exists and the rules around it,
+`docs/adr/0006-task-specific-genai-and-proofreading.md` for the `Proofreader`
+seam and deferred `genai-proofreading` adoption (`#147`),
 `docs/adr/0009-open-pro-ai-model-boundary.md` for the AI model and network
 boundary between Open Core and Closed Pro, and `CONSTITUTION.md`
 for the governing principles.
