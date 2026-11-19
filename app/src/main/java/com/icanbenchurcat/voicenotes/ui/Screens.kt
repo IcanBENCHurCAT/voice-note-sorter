@@ -51,10 +51,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -81,9 +85,13 @@ import com.icanbenchurcat.voicenotes.data.NoteStatus
 import com.icanbenchurcat.voicenotes.data.NoteTag
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import com.icanbenchurcat.voicenotes.audio.AudioPlaybackState
 import com.icanbenchurcat.voicenotes.audio.PlaybackStatus
 import com.icanbenchurcat.voicenotes.audio.rememberAudioPlayerState
+import kotlinx.coroutines.launch
 
 /** Notes list: filed cards, newest first. The bucket chip and the tier
  *  marker are shown on purpose - the demo value of this app is that the
@@ -508,6 +516,7 @@ fun NoteDetailScreen(
     transcriberStatus: CapabilityStatus = CapabilityStatus.UNAVAILABLE,
     availableBuckets: List<String> = DefaultBucketProfileProvider.profile().buckets.map { it.kind },
     buckets: List<Bucket> = emptyList(),
+    isDeveloperModeEnabled: Boolean = false,
     onBack: (() -> Unit)? = null,
     onConfirmOrChangeBucket: (String) -> Unit = {},
     onToggleActionDone: ((Long, Boolean) -> Unit)? = null,
@@ -525,6 +534,23 @@ fun NoteDetailScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showShareMenu by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    val confirmFiling: (String, String) -> Unit = { bucketKind, bucketDisplayName ->
+        onConfirmOrChangeBucket(bucketKind)
+        val message = context.getString(R.string.snackbar_filing_confirmed, bucketDisplayName)
+        coroutineScope.launch {
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(
+                message = message,
+                duration = SnackbarDuration.Short
+            )
+        }
+    }
+
     BackHandler(enabled = isEditing) {
         isEditing = false
         editTitle = note.title
@@ -560,6 +586,8 @@ fun NoteDetailScreen(
     }
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -569,6 +597,11 @@ fun NoteDetailScreen(
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     if (onBack != null) {
                         IconButton(
@@ -677,6 +710,7 @@ fun NoteDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .clipToBounds()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
                 .testTag("note_detail_content")
@@ -735,7 +769,9 @@ fun NoteDetailScreen(
             if (buckets.isNotEmpty()) {
                 buckets.map { it.kind to it.name }
             } else {
-                availableBuckets.map { it to it }
+                availableBuckets.map { kind ->
+                    kind to NoteCardFormatting.formatBucketDisplayName(kind)
+                }
             }
         }
         if (effectiveBuckets.isNotEmpty()) {
@@ -748,32 +784,53 @@ fun NoteDetailScreen(
                     val isFiledBucket = note.bucketKind == bucketKind
                     val isNeedsReview = note.status == NoteStatus.NEEDS_REVIEW.name
                     val isSelected = isFiledBucket && !isNeedsReview
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onConfirmOrChangeBucket(bucketKind) },
-                        label = {
-                            if (isFiledBucket && isNeedsReview) {
-                                Text("$bucketName (Suggested)")
-                            } else {
-                                Text(bucketName)
-                            }
-                        },
-                        border = FilterChipDefaults.filterChipBorder(
+                    val isSuggested = isFiledBucket && isNeedsReview
+                    val chipColors = if (isSuggested) {
+                        FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    } else {
+                        FilterChipDefaults.filterChipColors()
+                    }
+                    val chipBorder = if (isSuggested) {
+                        FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = false,
+                            borderColor = MaterialTheme.colorScheme.tertiary
+                        )
+                    } else {
+                        FilterChipDefaults.filterChipBorder(
                             enabled = true,
                             selected = isSelected,
                             // M3's default outlineVariant is ~1.5:1 on the background;
                             // `outline` keeps unselected pills at >= 3:1 (WCAG 1.4.11).
                             borderColor = MaterialTheme.colorScheme.outline
-                        ),
+                        )
+                    }
+                    val chipDesc = if (isSuggested) {
+                        stringResource(R.string.cd_suggested_bucket, bucketName)
+                    } else {
+                        stringResource(R.string.cd_file_in_bucket, bucketName)
+                    }
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { confirmFiling(bucketKind, bucketName) },
+                        label = {
+                            if (isSuggested) {
+                                Text(stringResource(R.string.suggested_bucket_label, bucketName))
+                            } else {
+                                Text(bucketName)
+                            }
+                        },
+                        colors = chipColors,
+                        border = chipBorder,
                         modifier = Modifier
                             .defaultMinSize(minHeight = 48.dp)
+                            .then(if (isSuggested) Modifier.testTag("suggested_bucket_chip") else Modifier)
                             .semantics {
-                            contentDescription = if (isFiledBucket && isNeedsReview) {
-                                "Suggested bucket $bucketName, tap to confirm filing"
-                            } else {
-                                "File in $bucketKind"
+                                contentDescription = chipDesc
                             }
-                        }
                     )
                 }
                 if (onManageBuckets != null) {
@@ -787,14 +844,17 @@ fun NoteDetailScreen(
             }
         }
         if (note.status == NoteStatus.NEEDS_REVIEW.name) {
+            val currentBucketDisplayName = remember(note.bucketKind, buckets) {
+                NoteCardFormatting.formatBucketDisplayName(note.bucketKind, buckets)
+            }
             Button(
-                onClick = { onConfirmOrChangeBucket(note.bucketKind) },
+                onClick = { confirmFiling(note.bucketKind, currentBucketDisplayName) },
                 modifier = Modifier
                     .padding(top = 8.dp)
                     .defaultMinSize(minHeight = 48.dp)
                     .semantics { contentDescription = "Confirm bucket filing" }
             ) {
-                Text("Confirm filing (${note.bucketKind})")
+                Text(stringResource(R.string.action_confirm_filing, currentBucketDisplayName))
             }
         }
         if (tags.isNotEmpty()) {
@@ -902,7 +962,7 @@ fun NoteDetailScreen(
                 modifier = Modifier.padding(top = 16.dp)
             )
         }
-        if (note.stageStatus.isNotBlank()) {
+        if (isDeveloperModeEnabled && note.stageStatus.isNotBlank()) {
             val stages = remember(note.stageStatus) {
                 NoteCardFormatting.formatPipelineStages(note.stageStatus)
             }

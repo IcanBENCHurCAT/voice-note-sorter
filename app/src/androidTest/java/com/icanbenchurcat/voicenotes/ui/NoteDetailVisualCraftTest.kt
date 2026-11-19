@@ -5,8 +5,10 @@ package com.icanbenchurcat.voicenotes.ui
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.unit.dp
 
@@ -58,18 +60,20 @@ class NoteDetailVisualCraftTest {
             )
         }
 
-        // Suggested bucket chip label
+        // Suggested bucket chip label & tonal tag
         composeTestRule.onNodeWithText("Tasks (Suggested)").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("suggested_bucket_chip").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Confirm filing in Tasks").assertIsDisplayed()
 
         // Tag chip components
         composeTestRule.onNodeWithText("#hardware").assertIsDisplayed()
         composeTestRule.onNodeWithText("#cables").assertIsDisplayed()
 
-        // Formatted processing status stage pills
-        composeTestRule.onNodeWithText("Processing status").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Transcribe: OK").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Bucket: OK").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Actions: OK").assertIsDisplayed()
+        // Processing status developer telemetry is hidden by default
+        composeTestRule.onNodeWithText("Processing status").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Transcribe: OK").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Bucket: OK").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Actions: OK").assertDoesNotExist()
 
         // Assert 48dp minimum touch targets
         composeTestRule.onNodeWithText("Tasks (Suggested)").assertHeightIsAtLeast(48.dp)
@@ -77,7 +81,34 @@ class NoteDetailVisualCraftTest {
         composeTestRule.onNodeWithContentDescription("Edit note").assertHeightIsAtLeast(48.dp)
         composeTestRule.onNodeWithContentDescription("Share note").assertHeightIsAtLeast(48.dp)
         composeTestRule.onNodeWithContentDescription("More options").assertHeightIsAtLeast(48.dp)
+    }
 
+    @Test
+    fun noteDetail_developerModeEnabled_displaysProcessingStatusPills() {
+        val note = Note(
+            id = 14L,
+            createdAtEpochMs = 1000L,
+            audioPath = "/fake/14.m4a",
+            title = "Dev telemetry note",
+            transcript = "Order new USB cables",
+            bucketKind = "TASK",
+            tierUsed = "CORE",
+            stageStatus = "transcribe:OK,bucket:OK,actions:OK",
+            status = NoteStatus.SORTED.name
+        )
+
+        composeTestRule.setContent {
+            NoteDetailScreen(
+                note = note,
+                isDeveloperModeEnabled = true,
+                onConfirmOrChangeBucket = {}
+            )
+        }
+
+        composeTestRule.onNodeWithText("Processing status").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Transcribe: OK").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Bucket: OK").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Actions: OK").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -173,13 +204,48 @@ class NoteDetailVisualCraftTest {
             )
         }
 
-        // The single prominent "Confirm filing" action
+        // The single prominent human-facing "Confirm filing in Tasks" action
+        composeTestRule.onNodeWithText("Confirm filing in Tasks").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Confirm bucket filing")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
             .performClick()
 
         assertEquals("TASK", confirmedBucket)
+        composeTestRule.onNodeWithText("Filed in Tasks").assertIsDisplayed()
+    }
+
+    @Test
+    fun noteDetail_tappingBucketChip_showsConfirmationSnackbar() {
+        val note = Note(
+            id = 23L,
+            createdAtEpochMs = 1000L,
+            audioPath = "",
+            title = "Re-file note",
+            transcript = "Actually this is an idea",
+            bucketKind = "TASK",
+            tierUsed = "CORE",
+            stageStatus = "",
+            status = NoteStatus.SORTED.name
+        )
+        val buckets = listOf(
+            Bucket("TASK", "Tasks"),
+            Bucket("IDEA", "Ideas")
+        )
+        var confirmedBucket: String? = null
+
+        composeTestRule.setContent {
+            NoteDetailScreen(
+                note = note,
+                buckets = buckets,
+                onConfirmOrChangeBucket = { confirmedBucket = it }
+            )
+        }
+
+        composeTestRule.onNodeWithContentDescription("File in Ideas").performClick()
+
+        assertEquals("IDEA", confirmedBucket)
+        composeTestRule.onNodeWithText("Filed in Ideas").assertIsDisplayed()
     }
 
     @Test

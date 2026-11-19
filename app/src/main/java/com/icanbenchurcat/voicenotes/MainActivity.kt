@@ -500,6 +500,7 @@ class MainActivity : ComponentActivity() {
                                                 transcriberStatus = transcriberStatus,
                                                 hasAudioFile = hasAudio,
                                                 buckets = buckets,
+                                                isDeveloperModeEnabled = isDeveloperModeEnabled,
                                                 onBack = {
                                                     if (backStack.lastOrNull() == key) {
                                                         backStack.removeLastOrNull()

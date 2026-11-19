@@ -73,8 +73,9 @@ class MainActivitySmokeTest {
         }
 
         composeRule.onNodeWithText("Pick up coffee beans and oat milk on the way home.").assertIsDisplayed()
-        composeRule.onNodeWithText("Transcribe: OK").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Bucket: OK").performScrollTo().assertIsDisplayed()
+        assertEquals(0, composeRule.onAllNodesWithText("Processing status").fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithText("Transcribe: OK").fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithText("Bucket: OK").fetchSemanticsNodes().size)
     }
 
     @Test
@@ -131,10 +132,10 @@ class MainActivitySmokeTest {
         // Open the Needs Review note and change its bucket to NOTE (clearing NEEDS_REVIEW)
         composeRule.onNodeWithText("Courtyard observation").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Confirm filing (INBOX)")
+            composeRule.onAllNodesWithText("Confirm filing in Inbox")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithContentDescription("File in NOTE").performClick()
+        composeRule.onNodeWithContentDescription("File in Notes").performClick()
 
         composeRule.waitUntil(timeoutMillis = 5_000) {
             runBlocking { dao.byId(reviewNoteId)?.status == NoteStatus.SORTED.name }

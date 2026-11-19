@@ -2,6 +2,8 @@
 
 package com.icanbenchurcat.voicenotes.ui
 
+import com.icanbenchurcat.voicenotes.ai.DefaultBucketProfileProvider
+import com.icanbenchurcat.voicenotes.data.Bucket
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -100,5 +102,28 @@ object NoteCardFormatting {
         } else {
             Pair(tags, 0)
         }
+    }
+
+    /**
+     * Resolves the human-facing display name for [bucketKind] using [buckets] first,
+     * falling back to [DefaultBucketProfileProvider] defaults and title-casing unknown slugs.
+     */
+    fun formatBucketDisplayName(bucketKind: String, buckets: List<Bucket> = emptyList()): String {
+        val matched = buckets.firstOrNull { it.kind.equals(bucketKind, ignoreCase = true) }?.name
+        if (!matched.isNullOrBlank()) return matched
+
+        val defaultMatched = DefaultBucketProfileProvider.profile().buckets
+            .firstOrNull { it.kind.equals(bucketKind, ignoreCase = true) }?.name
+        if (!defaultMatched.isNullOrBlank()) return defaultMatched
+
+        val trimmed = bucketKind.trim()
+        if (trimmed.isEmpty()) return ""
+        return trimmed.replace('_', ' ')
+            .lowercase(Locale.ROOT)
+            .split(' ')
+            .filter { it.isNotEmpty() }
+            .joinToString(" ") { word ->
+                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+            }
     }
 }
