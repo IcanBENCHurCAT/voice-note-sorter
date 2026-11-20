@@ -125,7 +125,8 @@ without modifying core code. See `docs/adr/0001-open-core-closed-pro-split.md`
 for why the seam exists and the rules around it,
 `docs/adr/0006-task-specific-genai-and-proofreading.md` for the `Proofreader`
 seam and deferred `genai-proofreading` adoption (`#147`),
-`docs/adr/0008-image-to-note-ingestion.md` for the zero-permission image ingestion pipeline,
+`docs/adr/0008-image-to-note-ingestion.md` for the zero-permission image ingestion pipeline
+(clarified for Room schema v4 / `MIGRATION_3_4` in `docs/adr/0010-adr-0008-schema-version-correction.md`),
 `docs/adr/0009-open-pro-ai-model-boundary.md` for the AI model and network
 boundary between Open Core and Closed Pro, and `CONSTITUTION.md`
 for the governing principles.
