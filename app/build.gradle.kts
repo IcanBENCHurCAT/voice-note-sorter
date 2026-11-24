@@ -9,7 +9,11 @@ plugins {
 
 android {
     namespace = "com.icanbenchurcat.voicenotes"
-    compileSdk = 37
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 1
+        }
+    }
 
     defaultConfig {
         applicationId = "com.icanbenchurcat.voicenotes"
