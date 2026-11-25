@@ -219,7 +219,8 @@ object MlKitGenAiPromptClient : GenAiPromptClient {
 
     internal fun isBusyOrQuotaError(e: GenAiException): Boolean =
         e.errorCode == GenAiException.ErrorCode.BUSY ||
-            e.errorCode == GenAiException.ErrorCode.PER_APP_BATTERY_USE_QUOTA_EXCEEDED
+            e.errorCode == GenAiException.ErrorCode.PER_APP_BATTERY_USE_QUOTA_EXCEEDED ||
+            e.errorCode == GenAiException.ErrorCode.BACKGROUND_USE_BLOCKED
 }
 
 private class MlKitGenAiPromptSession : GenAiPromptSession {
