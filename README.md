@@ -15,10 +15,11 @@ flagship on-device AI down to a plain recorder that still
 works.
 
 > **Status: MVP open core.** The boundary described in `CONSTITUTION.md` and
-> `AGENTS.md` is the hard contract. The module structure is a single app
-> module; the extension seam is the interface set in the `ai/` package, and
-> extraction into a dedicated `:extension-api` module is recorded in
-> `docs/adr/0002-module-layout-and-the-extension-seam.md`.
+> `AGENTS.md` is the hard contract. The module structure is `:app` plus
+> `:extension-api`; the extension seam is the capability interface set in
+> the `ai/` package, extracted into the dedicated `:extension-api` module
+> under ADR 0002 Trigger #1 (see
+> `docs/adr/0011-extension-api-module-extraction.md`).
 >
 > **Shipped on `main` today**: One-tap voice capture (`RecordingService`
 > foreground service, Glance home-screen widget, Quick Settings tile),

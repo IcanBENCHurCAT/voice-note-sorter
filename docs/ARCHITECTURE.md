@@ -1,6 +1,8 @@
 # Architecture
 
-Local-first, capability-tiered, one app module with strict internal seams.
+Local-first, capability-tiered, two modules with strict internal seams:
+`:app` (the application) and `:extension-api` (the published capability
+contracts the closed Pro build consumes; ADR 0011).
 
 ## Layers
 
@@ -9,10 +11,10 @@ UI (Compose, Navigation 3, Material 3 Expressive)
   |  calls interfaces only
 Domain: SortingPipeline (staged, WorkManager-backed)
   |
-AI capability interfaces (ai/ package)
-  |- Nano implementations (ML Kit GenAI / AICore)
-  |- Platform & bundled implementations (SpeechRecognizer, bundled ML Kit OCR, heuristics)
-  |- No-op / manual implementations (Tier 1)
+AI capability interfaces (:extension-api, ai/ package)
+  |- Nano implementations (ML Kit GenAI / AICore) (:app)
+  |- Platform & bundled implementations (SpeechRecognizer, bundled ML Kit OCR, heuristics) (:app)
+  |- No-op / manual implementations (Tier 1) (:app)
 Data: Room (notes, buckets, actions, tags, FTS) + files (audio, images)
 Platform: Glance widgets, Quick Settings tile, Live Updates
 ```
@@ -97,7 +99,9 @@ bucket set and rules without forking the pipeline.
 
 ## Extension points (for the closed Pro repo and client builds)
 
-Implemented today, in the `ai/` package:
+Implemented today, in the `:extension-api` module (`ai/` package;
+extracted from `:app` under ADR 0002 Trigger #1, see
+`docs/adr/0011-extension-api-module-extraction.md`):
 
 - `Transcriber`, `ImageTranscriber`, `Proofreader`, `Summarizer`, `ActionExtractor`, `Bucketer`, `Embedder` - the
   capability interfaces; alternative engines can be supplied by an outer
@@ -107,18 +111,31 @@ Implemented today, in the `ai/` package:
   matches with cosine similarity over rows matching the active
   `Embedder.modelId` whenever an `Embedder` is `AVAILABLE` (see
   `docs/adr/0007-local-embeddings-and-hybrid-search.md`).
-- `BucketProfileProvider` - supplies bucket sets and filing rules. This
-  is the only downstream seam in use today.
-- `SearchRepository` - interface for performing searches.
+- `BucketProfileProvider` - supplies bucket sets and filing rules.
+- `ExtensionRegistry` - the composition seam: one slot per capability
+  contract, registered at startup by the host composition root.
+  `VoiceNotesApp` registers the open core's free primary
+  implementations (`NanoTranscriber`, `NanoProofreader`,
+  `NanoImageTranscriber`, `NanoSummarizer`, `NanoActionExtractor`,
+  `NanoBucketer`, `NoOpEmbedder`, `DefaultBucketProfileProvider`).
+  Registration only for now: `SortingWorker` and the search repository
+  still construct their own instances, and nothing reads the registry
+  yet (ADR 0011).
+
+Implemented today, in `:app`:
+
+- `SearchRepository` - interface for performing searches. It stays in
+  `:app` because its signature returns `Note`, a Room entity; it is
+  not a pure contract and does not belong in `:extension-api`
+  (ADR 0011).
 
 Defined in the concept spec (Section 10), not yet implemented:
-`ExtensionRegistry`, `EntitlementProvider`, `FeatureGate`,
+`EntitlementProvider`, `FeatureGate`,
 `ExportDestination`, `ReportTemplate`, extra BucketPack / vocabulary
 packs, and a settings / navigation contribution point for Pro screens.
 These are implemented only when a consumer exists; see
-`docs/adr/0002-module-layout-and-the-extension-seam.md` for the seam
-today (package-level interfaces in `:app`) and the trigger for
-extracting a dedicated `:extension-api` module.
+`docs/adr/0002-module-layout-and-the-extension-seam.md` for the seam's
+history and the extraction triggers.
 
 Anything behind these seams can be replaced by a downstream module
 without modifying core code. See `docs/adr/0001-open-core-closed-pro-split.md`
