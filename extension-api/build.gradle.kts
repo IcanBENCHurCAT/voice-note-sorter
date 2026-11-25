@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 plugins {
+    // No org.jetbrains.kotlin.android here: AGP 9 has built-in Kotlin
+    // support and rejects the standalone plugin (same reason :app does
+    // not apply it).
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
 }
 
 android {
