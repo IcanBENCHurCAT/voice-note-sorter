@@ -10,18 +10,18 @@ Every finding below is explicitly tagged with its verification status:
 
 ## 1. Per-Device Verification Matrix
 
-| Field | Device 1: `Pixel_10_Pro_XL` AVD (`sdk_gphone16k_x86_64`) | Device 2: CI `aosp_atd` API 31 | Device 3: CI `aosp_atd` API 36 | Physical Tier 3 Flagship (e.g. Pixel 9 / 10 Pro) |
+| Field | Device 1: `Pixel_10_Pro_XL` AVD (`sdk_gphone16k_x86_64`) | Device 2: CI `aosp_atd` API 31 | Device 3: CI `aosp_atd` API 36 | Device 4: Physical `Pixel 10 Pro XL` (`mustang`, `57100DLCQ00663`) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Verification Status** | `verified-on-device` (2026-11-01) | `verified-on-device` (CI run `41328311859`) | `verified-on-device` (CI run `41328311859`) | `not-verified` (pending physical hardware) |
-| **Model / ABI** | `sdk_gphone16k_x86_64` (`x86_64`, 16 KB page size) | `sdk_gphone64_x86_64` (`x86_64`) | `sdk_gphone64_x86_64` (`x86_64`) | ARM64 physical device (`not-verified`) |
-| **Android API Level** | API 37 (Android 17, Google Play image) | API 31 (Android 12 `minSdk` floor, AOSP ATD) | API 36 (Android 16 `targetSdk`, AOSP ATD) | API 35–36 (`not-verified`) |
-| **AICore (`com.google.android.aicore`)** | Not installed (`verified-on-device` via `adb shell pm list packages` and `PackageManager.getPackageInfo`) | Not installed (`verified-on-device`) | Not installed (`verified-on-device`) | Installed via Google Play (`not-verified`) |
-| **Speech Services (`com.google.android.tts`)** | `googletts.google-speech-apk_20260928.02_p0.989914902` (`versionCode=210688747`, `verified-on-device`) | Not installed on AOSP ATD (`verified-on-device`) | Not installed on AOSP ATD (`verified-on-device`) | Installed (`not-verified`) |
-| **Android System Intelligence (`com.google.android.as`)** | Installed in system (`pm list packages`), hidden from app `getPackageInfo` unless `<queries>` is declared (`verified-on-device`) | Not installed (`verified-on-device`) | Not installed (`verified-on-device`) | Installed (`not-verified`) |
-| **`SpeechRecognizer.isRecognitionAvailable(context)`** | `true` (`verified-on-device`) | `false` (`verified-on-device` on AOSP ATD without voice recognition service) | `false` (`verified-on-device` on AOSP ATD without voice recognition service) | `true` (`not-verified`) |
-| **`SpeechRecognizer.isOnDeviceRecognitionAvailable(context)`** | `true` (`verified-on-device`) | `false` (`verified-on-device`) | `false` (`verified-on-device`) | `true` (`not-verified`) |
-| **ML Kit `checkStatus()` (`MODE_ADVANCED`)** | Throws `com.google.android.gms.internal.mlkit_genai_speech.zzaxh: PERMISSION_DENIED: Api access revoked.` (`verified-on-device`) | Returns `0` (`FeatureStatus.UNAVAILABLE`) or throws on missing backing service (`verified-on-device`) | Returns `0` (`FeatureStatus.UNAVAILABLE`) or throws on missing backing service (`verified-on-device`) | Expected `FeatureStatus.AVAILABLE (3)` or `DOWNLOADABLE (1)` (`not-verified`) |
-| **ML Kit `checkStatus()` (`MODE_BASIC`)** | Throws `com.google.android.gms.internal.mlkit_genai_speech.zzaxh: PERMISSION_DENIED: Api access revoked.` (`verified-on-device`) | Returns `0` (`FeatureStatus.UNAVAILABLE`) or throws on missing backing service (`verified-on-device`) | Returns `0` (`FeatureStatus.UNAVAILABLE`) or throws on missing backing service (`verified-on-device`) | Expected `FeatureStatus.AVAILABLE (3)` or `DOWNLOADABLE (1)` (`not-verified`) |
+| **Verification Status** | `verified-on-device` (2026-11-01) | `verified-on-device` (CI run `41328311859`) | `verified-on-device` (CI run `41328311859`) | `verified-on-device` (2026-11-24, Issue `#147`) |
+| **Model / ABI** | `sdk_gphone16k_x86_64` (`x86_64`, 16 KB page size) | `sdk_gphone64_x86_64` (`x86_64`) | `sdk_gphone64_x86_64` (`x86_64`) | `Pixel 10 Pro XL` (`arm64-v8a`, `verified-on-device`) |
+| **Android API Level** | API 37 (Android 17, Google Play image) | API 31 (Android 12 `minSdk` floor, AOSP ATD) | API 36 (Android 16 `targetSdk`, AOSP ATD) | API 37 (Android 17, `verified-on-device`) |
+| **AICore (`com.google.android.aicore`)** | Not installed (`verified-on-device` via `adb shell pm list packages` and `PackageManager.getPackageInfo`) | Not installed (`verified-on-device`) | Not installed (`verified-on-device`) | Installed: `26.10.15.11.release.prod_aicore_20261015.00_RC11` (`versionCode=545573`, `verified-on-device`) |
+| **Speech Services (`com.google.android.tts`)** | `googletts.google-speech-apk_20260928.02_p0.989914902` (`versionCode=210688747`, `verified-on-device`) | Not installed on AOSP ATD (`verified-on-device`) | Not installed on AOSP ATD (`verified-on-device`) | `googletts.google-speech-apk_20261026.00_p0.1007071969` (`versionCode=210698265`, `verified-on-device`) |
+| **Android System Intelligence (`com.google.android.as`)** | Installed in system (`pm list packages`), hidden from app `getPackageInfo` unless `<queries>` is declared (`verified-on-device`) | Not installed (`verified-on-device`) | Not installed (`verified-on-device`) | Installed (`com.google.android.as` & `com.google.android.as.oss`, `verified-on-device`) |
+| **`SpeechRecognizer.isRecognitionAvailable(context)`** | `true` (`verified-on-device`) | `false` (`verified-on-device` on AOSP ATD without voice recognition service) | `false` (`verified-on-device` on AOSP ATD without voice recognition service) | `true` (`verified-on-device`) |
+| **`SpeechRecognizer.isOnDeviceRecognitionAvailable(context)`** | `true` (`verified-on-device`) | `false` (`verified-on-device`) | `false` (`verified-on-device`) | `true` (`verified-on-device`) |
+| **ML Kit `checkStatus()` (`MODE_ADVANCED`)** | Throws `com.google.android.gms.internal.mlkit_genai_speech.zzaxh: PERMISSION_DENIED: Api access revoked.` (`verified-on-device`) | Returns `0` (`FeatureStatus.UNAVAILABLE`) or throws on missing backing service (`verified-on-device`) | Returns `0` (`FeatureStatus.UNAVAILABLE`) or throws on missing backing service (`verified-on-device`) | Returns `3` (`FeatureStatus.AVAILABLE`, `verified-on-device`) |
+| **ML Kit `checkStatus()` (`MODE_BASIC`)** | Throws `com.google.android.gms.internal.mlkit_genai_speech.zzaxh: PERMISSION_DENIED: Api access revoked.` (`verified-on-device`) | Returns `0` (`FeatureStatus.UNAVAILABLE`) or throws on missing backing service (`verified-on-device`) | Returns `0` (`FeatureStatus.UNAVAILABLE`) or throws on missing backing service (`verified-on-device`) | Returns `3` (`FeatureStatus.AVAILABLE`, `verified-on-device`) |
 
 ---
 
@@ -199,3 +199,41 @@ try {
     recognizer.close()
 }
 ```
+
+---
+
+## 5. Physical Tier 3 AICore Runtime Verification (Issue #147, 2026-11-24)
+
+Executed against physical **Pixel 10 Pro XL** (`mustang`, `arm64-v8a`, API 37, `com.google.android.aicore` `versionCode=545573`, `26.10.15.11.release.prod_aicore_20261015.00_RC11`) running `com.google.mlkit:genai-prompt:1.0.0-beta5`, `com.google.mlkit:genai-speech-recognition:1.0.0-alpha2`, and bundled `com.google.mlkit:text-recognition:16.0.1`.
+
+### 5.1 `GenerativeModel` Status, Download Transition, and Feature Flags (`verified-on-device`)
+- **Initial state before download:**
+  - `checkStatus()` = `1` (`FeatureStatus.DOWNLOADABLE`)
+  - `getBaseModelName()` = `nano-v4-full`
+  - `getTokenLimit()` = `32768`
+  - `getAvailableFeatures()` = `[1, 2, 3, 4, 5]` (`SYSTEM_PROMPT`, `THINKING_MODE`, `PREFIX_CACHING`, `STRUCTURED_OUTPUT`, `FUNCTION_CALLING`)
+  - Deprecated boolean helpers while `DOWNLOADABLE`: `isStructuredOutputFeatureAvailable() = false`, `isSystemPromptAvailable() = false`, `isCachingFeatureAvailable() = true`, `isThinkingModeAvailable() = false`.
+  - `CapabilityProbe.resolveDeviceTier()` honestly reported `Tier.CORE` (`transcriber=AVAILABLE`, `summarizer/actions/proofreader=DOWNLOADABLE`, `image=AVAILABLE`) and all `Nano*` stages demoted cleanly to Tier 2 fallbacks.
+- **After `MlKitGenAiPromptClient.download()` (`1,934 ms`, `ok = true`):**
+  - `checkStatus()` = `3` (`FeatureStatus.AVAILABLE`)
+  - All feature flags reported `true`: `structured=true`, `sysPrompt=true`, `caching=true`, `thinking=true`, `features=[1, 2, 3, 4, 5]`.
+  - `CapabilityProbe.resolveDeviceTier()` transitioned to `Tier.FULL` (`transcriber=AVAILABLE`, `summarizer=AVAILABLE`, `actions=AVAILABLE`, `proofreader=AVAILABLE`, `image=AVAILABLE`).
+
+### 5.2 Live Foreground `Tier.FULL` Inference Benchmarks (`verified-on-device`)
+With `MainActivity` in the foreground (`ActivityScenario.launch`), all shipped Tier 3 stages succeeded on `nano-v4-full`:
+- `NanoProofreader` (Prompt API v1, `ADR 0006` already committed in `ab1e9b2`): `827 ms` — preserved all facts/numbers (`2`, `14`, `5pm`) while normalizing casing and terminal punctuation.
+- `GenAiPromptSession.warmup()`: `75 ms`.
+- `NanoSummarizer` (structured output + shared session): `5,731 ms`, `Tier.FULL` — generated clean title (`To-Do List: Electrician Call and Wire Purchase`) and 2-sentence summary.
+- `NanoActionExtractor` (structured output + shared session): `1,134 ms`, `Tier.FULL` — extracted 2 distinct actions with resolved `dueAtEpochMs` for `"tomorrow at 5pm"`.
+- `NanoBucketer` (structured output): `1,067 ms`, `Tier.FULL` — `bucketKind=TASK`, `confidence=0.9`, `needsReview=false`.
+- Image transcription comparison on a 3-line test note bitmap:
+  - Tier 2 `MlKitOcrImageTranscriber` (bundled `com.google.mlkit:text-recognition:16.0.1`): `355 ms`, `Tier.CORE` — exact 3-line transcription.
+  - Tier 3 `NanoImageTranscriber` (`ImagePart(Bitmap)`): `1,304 ms`, `Tier.FULL` — exact 3-line transcription.
+
+### 5.3 Critical Runtime Finding: AICore Blocks Background Inference (`ErrorCode 30`, `verified-on-device`)
+- Invoking `genai-prompt` without an active foreground `Activity` threw:
+  ```text
+  com.google.mlkit.genai.common.GenAiException: [ErrorCode 30] Background usage is blocked. Please use the API when your app is in the foreground instead.
+  ```
+- **Actionable follow-up:** `MlKitGenAiPromptClient.isBusyOrQuotaError()` should treat `GenAiException.ErrorCode.BACKGROUND_USE_BLOCKED` (`30`) as a transient demotion (`CapabilityBusyException`) so background `SortingWorker` runs triggered from Quick Settings / widget / background capture demote cleanly to Tier 2 heuristics and mark `NEEDS_REVIEW` for foreground retry instead of recording `:FAILED`.
+- **Task-specific artifacts (`genai-proofreading`, `genai-summarization`):** Prompt API v1 (`nano-v4-full` with structured output + shared `GenAiPromptSession` + `ADR 0006`) already achieves `Tier.FULL` quality across all stages with zero extra dependencies; task-specific ML Kit artifacts remain unnecessary unless a future latency/quality regression warrants evaluating them.
