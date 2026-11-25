@@ -49,6 +49,9 @@ ksp {
 
 
 dependencies {
+    // Capability contracts and the extension seam (ADR 0002, ADR 0011).
+    implementation(project(":extension-api"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime)
