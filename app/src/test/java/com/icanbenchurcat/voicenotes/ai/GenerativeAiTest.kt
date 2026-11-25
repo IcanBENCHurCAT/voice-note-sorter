@@ -2,6 +2,7 @@
 
 package com.icanbenchurcat.voicenotes.ai
 
+import com.google.mlkit.genai.common.GenAiException
 import com.icanbenchurcat.voicenotes.fixtures.FakeActionExtractor
 import com.icanbenchurcat.voicenotes.fixtures.FakeBucketer
 import com.icanbenchurcat.voicenotes.fixtures.FakeProofreader
@@ -840,6 +841,47 @@ class GenerativeAiTest {
         }
         assertEquals(1, busyGenerateClient.generateCalls)
         assertEquals(0, fallback.calls)
+    }
+
+    @Test
+    fun mlKitGenAiPromptClient_backgroundUseBlocked_isBusyOrQuotaError() {
+        // ErrorCode 30, verified on device (docs/capability-verification.md
+        // section 5.3): AICore blocks inference while the app is in the
+        // background. Background SortingWorker runs must demote cleanly to
+        // Tier 2 fallbacks (CONSTITUTION.md Art. III.3), never fail a stage.
+        val backgroundBlocked = GenAiException(
+            "Background usage is blocked. Please use the API when your app is in the foreground instead.",
+            null,
+            GenAiException.ErrorCode.BACKGROUND_USE_BLOCKED
+        )
+        assertTrue(MlKitGenAiPromptClient.isBusyOrQuotaError(backgroundBlocked))
+    }
+
+    @Test
+    fun mlKitGenAiPromptClient_busyAndBatteryQuota_areBusyOrQuotaErrors() {
+        val busy = GenAiException(
+            "The service is busy",
+            null,
+            GenAiException.ErrorCode.BUSY
+        )
+        assertTrue(MlKitGenAiPromptClient.isBusyOrQuotaError(busy))
+
+        val quotaExceeded = GenAiException(
+            "Per-app battery use quota exceeded",
+            null,
+            GenAiException.ErrorCode.PER_APP_BATTERY_USE_QUOTA_EXCEEDED
+        )
+        assertTrue(MlKitGenAiPromptClient.isBusyOrQuotaError(quotaExceeded))
+    }
+
+    @Test
+    fun mlKitGenAiPromptClient_nonTransientError_isNotBusyOrQuotaError() {
+        val notSupported = GenAiException(
+            "Multimodal not supported",
+            null,
+            GenAiException.ErrorCode.NOT_SUPPORTED
+        )
+        assertFalse(MlKitGenAiPromptClient.isBusyOrQuotaError(notSupported))
     }
 
     @Test
