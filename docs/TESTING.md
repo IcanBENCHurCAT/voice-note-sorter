@@ -149,3 +149,9 @@ Copy this row format for each manual or emulator test session:
 | Date | Build SHA | Device / AVD (API) | Section | Result | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | 2026-11-25 | `5e5db64` | Physical `Pixel 10 Pro XL` (`mustang`, `57100DLCQ00663`, `arm64-v8a`, Android 17 / API 37, AICore `545573`) | **Full Automated Suite (`:app:testDebugUnitTest`, `:app:assembleDebug`, `:app:connectedDebugAndroidTest`)** | **PASS** | `201/201` JVM unit tests passed; `:app:assembleDebug` succeeded; `69/69` connected instrumented tests passed across all 18 suites (0 failures, 0 errors, 0 skipped). |
+
+### Run 3 — 2026-11-26 (`abf7112`)
+
+| Date | Build SHA | Device / AVD (API) | Section | Result | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 2026-11-26 | `abf7112` | Host + Release Artifacts | **Play Store Pre-Launch Build & ELF Audit (`:app:testDebugUnitTest`, `:app:assembleRelease`, `:app:bundleRelease`)** | **PASS (with `#172` manifest finding)** | `202/202` unit tests passed; R8 `app-release-unsigned.apk` (`49,307,225` B) and `app-release.aab` (`26,713,401` B) built cleanly; all 64-bit `.so` files verified `p_align = 0x4000` (16 KB); merged release manifest audit flagged transitive `INTERNET` permission (`#172`). |
