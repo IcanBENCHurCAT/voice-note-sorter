@@ -172,7 +172,7 @@ class MainActivitySmokeTest {
 
         // Open Settings from Notes tab and return
         composeRule.onNodeWithContentDescription("Settings").performClick()
-        composeRule.onNodeWithText("Device Capabilities").assertIsDisplayed()
+        composeRule.onNodeWithText("Offline AI & Storage").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Navigate back").performClick()
         composeRule.onNodeWithText("No voice notes yet").assertIsDisplayed()
 
@@ -187,7 +187,7 @@ class MainActivitySmokeTest {
 
         // Open Settings from Tasks tab and return to Tasks tab
         composeRule.onNodeWithContentDescription("Settings").performClick()
-        composeRule.onNodeWithText("Device Capabilities").assertIsDisplayed()
+        composeRule.onNodeWithText("Offline AI & Storage").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Navigate back").performClick()
         composeRule.onNodeWithText("No tasks yet. Action items extracted from voice notes will appear here.")
             .assertIsDisplayed()

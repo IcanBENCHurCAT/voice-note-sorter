@@ -121,6 +121,19 @@ class NoteCardFormattingTest {
     }
 
     @Test
+    fun formatTierLabel_mapsKnownTiersCaseInsensitiveAndTitleCasesUnknown() {
+        assertEquals("Full on-device AI", NoteCardFormatting.formatTierLabel("FULL"))
+        assertEquals("Full on-device AI", NoteCardFormatting.formatTierLabel(" full "))
+        assertEquals("Core sorting", NoteCardFormatting.formatTierLabel("CORE"))
+        assertEquals("Core sorting", NoteCardFormatting.formatTierLabel("core"))
+        assertEquals("Basic mode", NoteCardFormatting.formatTierLabel("MINIMAL"))
+        assertEquals("Basic mode", NoteCardFormatting.formatTierLabel(" minimal "))
+        assertEquals("Basic mode", NoteCardFormatting.formatTierLabel(""))
+        assertEquals("Basic mode", NoteCardFormatting.formatTierLabel("   "))
+        assertEquals("Custom Tier", NoteCardFormatting.formatTierLabel("CUSTOM_TIER"))
+    }
+
+    @Test
     fun formatDueDate_formatsMonthDayAndTimeConsistently() {
         val tz = TimeZone.getTimeZone("America/New_York")
         val zone = tz.toZoneId()

@@ -83,7 +83,7 @@ class SettingsScreenTest {
 
         // Unavailable explanation is shown in plain language without upgrade pressure
         composeTestRule.onNodeWithText(
-            "Automatic summaries require Android's built-in on-device AI service, which isn't active on this device."
+            "Automatic summaries require built-in AI support on this phone, which isn't active right now."
         ).assertIsDisplayed()
     }
 
@@ -130,8 +130,8 @@ class SettingsScreenTest {
         }
 
         composeTestRule.onNodeWithText("Full on-device AI").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Re-check capabilities"))
-        composeTestRule.onNodeWithText("Re-check capabilities").performClick()
+        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Check again"))
+        composeTestRule.onNodeWithText("Check again").performClick()
         assertTrue(refreshed)
     }
 
@@ -169,8 +169,8 @@ class SettingsScreenTest {
         composeTestRule.onNodeWithText("Audio recordings").assertIsDisplayed()
         composeTestRule.onNodeWithText("15.0 MB").assertIsDisplayed()
 
-        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Database"))
-        composeTestRule.onNodeWithText("Database").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("settings_list").performScrollToNode(hasText("Notes & text"))
+        composeTestRule.onNodeWithText("Notes & text").assertIsDisplayed()
         composeTestRule.onNodeWithText("120.0 KB (8 voice notes)").assertIsDisplayed()
 
         // Toggle exists and triggers confirmation dialog before enabling
@@ -217,16 +217,16 @@ class SettingsScreenTest {
 
         // Scoped accessible download buttons >= 48dp tall
         composeTestRule.onNodeWithTag("settings_list")
-            .performScrollToNode(hasContentDescription("Download model for Note Summarisation"))
-        composeTestRule.onNodeWithContentDescription("Download model for Note Summarisation")
+            .performScrollToNode(hasContentDescription("Download AI feature for Note Summarisation"))
+        composeTestRule.onNodeWithContentDescription("Download AI feature for Note Summarisation")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
             .performClick()
         assertTrue(summarizerDownloadClicked)
 
         composeTestRule.onNodeWithTag("settings_list")
-            .performScrollToNode(hasContentDescription("Download model for Action Item Extraction"))
-        composeTestRule.onNodeWithContentDescription("Download model for Action Item Extraction")
+            .performScrollToNode(hasContentDescription("Download AI feature for Action Item Extraction"))
+        composeTestRule.onNodeWithContentDescription("Download AI feature for Action Item Extraction")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
             .performClick()
@@ -290,7 +290,7 @@ class SettingsScreenTest {
         val devAction = composeTestRule.onNodeWithContentDescription("Developer options")
         devAction.assertIsDisplayed().assertHeightIsAtLeast(48.dp)
 
-        val titleBounds = composeTestRule.onNodeWithText("Device Capabilities").fetchSemanticsNode().boundsInRoot
+        val titleBounds = composeTestRule.onNodeWithText("Offline AI & Storage").fetchSemanticsNode().boundsInRoot
         val actionBounds = devAction.fetchSemanticsNode().boundsInRoot
         // Action icon shares the TopAppBar row with the title (vertical centers align)
         val titleCenterY = (titleBounds.top + titleBounds.bottom) / 2f

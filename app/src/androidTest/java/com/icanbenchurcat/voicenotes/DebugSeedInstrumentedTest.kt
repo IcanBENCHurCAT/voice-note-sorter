@@ -92,7 +92,7 @@ class DebugSeedInstrumentedTest {
         composeRule.onNodeWithText("Tasks").performClick()
         composeRule.onNodeWithContentDescription("Developer options").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Settings").performClick()
-        composeRule.onNodeWithText("Device Capabilities").assertIsDisplayed()
+        composeRule.onNodeWithText("Offline AI & Storage").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Developer options").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Navigate back").performClick()
         composeRule.onNodeWithText("Notes").performClick()

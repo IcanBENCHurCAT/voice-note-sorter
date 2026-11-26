@@ -164,7 +164,7 @@ class NotesListFilterAndMetadataTest {
         composeTestRule.onNodeWithText("Tasks 1/2").assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Filter by tag launch").assertIsDisplayed()
         composeTestRule.onNodeWithText("TASK").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Filed as TASK, CORE").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Filed as Tasks, Core sorting").assertIsDisplayed()
     }
 
     @Test
