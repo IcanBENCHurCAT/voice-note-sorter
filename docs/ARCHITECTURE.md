@@ -2,7 +2,8 @@
 
 Local-first, capability-tiered, two modules with strict internal seams:
 `:app` (the application) and `:extension-api` (the published capability
-contracts the closed Pro build consumes; ADR 0011).
+contracts the closed Pro build consumes; ADR 0011). For a developer-focused
+walkthrough of the on-device AI APIs, see `docs/ON_DEVICE_AI_GUIDE.md`.
 
 ## Layers
 
@@ -42,9 +43,9 @@ Staged, independently failable, and independently tiered:
    is immutable across downstream stages.
 2. **Proofread (transcript cleanup)** - runs between Stage 1 and Stage 2 behind
    the `Proofreader` capability seam (`ADR 0006`): `NanoProofreader` on Tier 3
-   (v1 uses `GenAiPromptClient` / Prompt API path only, while adopting
-   `com.google.mlkit:genai-proofreading` awaits physical hardware verification
-   in `#147`) and `DeterministicTranscriptCleaner` on Tier 1/2 (whitespace
+   (uses `GenAiPromptClient` / Prompt API v1, verified on physical Pixel 10 Pro XL
+   in `#147`; `com.google.mlkit:genai-proofreading` deferred as unnecessary)
+   and `DeterministicTranscriptCleaner` on Tier 1/2 (whitespace
    collapse, sentence-initial capitalization, and terminal punctuation without
    altering words). Proofreader output is held as a separate `workingTranscript`
    consumed by Stages 3-6, leaving `Note.transcript` untouched.
@@ -70,7 +71,8 @@ single `GenAiPromptSession`, warms up the model before Stage 2, attaches
 shared `SystemInstruction` (role framing) and transcript `PromptPrefix`
 (when supported by the model) so KV prefix state can be reused across all
 three stages, and clears implicit caches + closes the session in `finally`.
-A stage that cannot run (capability absent, AICore `BUSY`, quota, or
+A stage that cannot run (capability absent, AICore `BUSY`, quota,
+background `ErrorCode 30` `BACKGROUND_USE_BLOCKED` mapped in `#166`, or
 unparseable output) records its status (`:BUSY` / `:FAILED`) or Tier 2
 demotion on the note and the pipeline continues (`CapabilityBusyException`
 marks the note `NEEDS_REVIEW`). See

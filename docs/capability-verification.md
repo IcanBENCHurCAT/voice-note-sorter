@@ -107,8 +107,8 @@ Every finding below is explicitly tagged with its verification status:
 - On `Pixel_10_Pro_XL` (API 37), `com.google.android.as` is installed on the system image (`verified-on-device` via `adb shell pm list packages`), but calling `context.packageManager.getPackageInfo("com.google.android.as", 0)` inside the app threw `PackageManager.NameNotFoundException` because `AndroidManifest.xml` does not declare a `<queries>` block.
 - Similarly, querying `com.google.android.aicore` (required by Issue #14 to key the DataStore cache by AICore version) will always throw `NameNotFoundException` on API 30+ unless `<queries>` is declared in `AndroidManifest.xml` (or until maintainer approval is granted if `<queries>` is treated as a manifest permission/visibility change).
 
-### 3.4 Other ML Kit GenAI Capabilities (Summarization, Prompt / Action Extraction) (`verified-on-device`)
-- Verified in `gradle/libs.versions.toml` and `app/build.gradle.kts` (`verified-on-device`): only `com.google.mlkit:genai-speech-recognition:1.0.0-alpha2` and `com.google.mlkit:genai-common:1.0.0-beta5` are currently in the dependency graph. No ML Kit GenAI Summarization (`com.google.mlkit:genai-summarization`) or Prompt (`com.google.mlkit:genai-prompt`) artifacts are declared yet.
+### 3.4 Other ML Kit GenAI Capabilities (Initial Issue #41 Baseline) (`verified-on-device`)
+- *(Historical baseline from Issue #41, prior to `genai-prompt:1.0.0-beta5` and `text-recognition:16.0.1` landing; see Section 5 for current physical Tier 3 verification.)* Verified in `gradle/libs.versions.toml` and `app/build.gradle.kts` at Issue #41 (`verified-on-device`): only `com.google.mlkit:genai-speech-recognition:1.0.0-alpha2` and `com.google.mlkit:genai-common:1.0.0-beta5` were in the initial dependency graph.
 
 ---
 
@@ -235,5 +235,5 @@ With `MainActivity` in the foreground (`ActivityScenario.launch`), all shipped T
   ```text
   com.google.mlkit.genai.common.GenAiException: [ErrorCode 30] Background usage is blocked. Please use the API when your app is in the foreground instead.
   ```
-- **Actionable follow-up:** `MlKitGenAiPromptClient.isBusyOrQuotaError()` should treat `GenAiException.ErrorCode.BACKGROUND_USE_BLOCKED` (`30`) as a transient demotion (`CapabilityBusyException`) so background `SortingWorker` runs triggered from Quick Settings / widget / background capture demote cleanly to Tier 2 heuristics and mark `NEEDS_REVIEW` for foreground retry instead of recording `:FAILED`.
+- **Resolution (landed in `#166`, `76ef726`):** `MlKitGenAiPromptClient.isBusyOrQuotaError()` now treats `GenAiException.ErrorCode.BACKGROUND_USE_BLOCKED` (`30`) as a transient demotion (`CapabilityBusyException`) so background `SortingWorker` runs triggered from Quick Settings / widget / background capture demote cleanly to Tier 2 heuristics and mark `NEEDS_REVIEW` for foreground retry instead of recording `:FAILED`.
 - **Task-specific artifacts (`genai-proofreading`, `genai-summarization`):** Prompt API v1 (`nano-v4-full` with structured output + shared `GenAiPromptSession` + `ADR 0006`) already achieves `Tier.FULL` quality across all stages with zero extra dependencies; task-specific ML Kit artifacts remain unnecessary unless a future latency/quality regression warrants evaluating them.

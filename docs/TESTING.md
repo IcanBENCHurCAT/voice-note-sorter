@@ -143,3 +143,9 @@ Copy this row format for each manual or emulator test session:
 | 2026-11-01 | `c633c83` | `Pixel_10_Pro_XL` AVD (API 37.0, 16 KB page size) | **A5. Quick Settings tile** | **PASS** | Quick Settings tile tested and verified after updating to `startActivityAndCollapse(PendingIntent)` for API 34+ compliance. |
 | 2026-11-01 | `c633c83` | `Pixel_10_Pro_XL` AVD (API 37.0, 16 KB page size) | **A6. Accessibility / TalkBack semantics** | **PASS** | UI Automator dump confirmed `content-desc="Record a note"` on FAB and QS tile, `48dp` minimum card height, and metadata semantics. |
 | 2026-11-01 | `c633c83` | CI Emulators (`aosp_atd/x86_64`, **API 31** & **API 36**) | **A1–A3 (Automated Smoke & Seed)** | **PASS** | `MainActivitySmokeTest` and `DebugSeedInstrumentedTest` passed on both API 31 and API 36 in GitHub Actions. |
+
+### Run 2 — 2026-11-25 (`5e5db64`)
+
+| Date | Build SHA | Device / AVD (API) | Section | Result | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 2026-11-25 | `5e5db64` | Physical `Pixel 10 Pro XL` (`mustang`, `57100DLCQ00663`, `arm64-v8a`, Android 17 / API 37, AICore `545573`) | **Full Automated Suite (`:app:testDebugUnitTest`, `:app:assembleDebug`, `:app:connectedDebugAndroidTest`)** | **PASS** | `201/201` JVM unit tests passed; `:app:assembleDebug` succeeded; `69/69` connected instrumented tests passed across all 18 suites (0 failures, 0 errors, 0 skipped). |
