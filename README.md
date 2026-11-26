@@ -23,22 +23,43 @@ works.
 >
 > **Shipped on `main` today**: One-tap voice capture (`RecordingService`
 > foreground service, Glance home-screen widget, Quick Settings tile),
-> 5-stage fault-tolerant `SortingWorker` pipeline, 3-tier capability ladder
-> (`NanoTranscriber`, `PlatformTranscriber`, `NullTranscriber` +
+> zero-permission image-to-note capture (`PickVisualMedia` / `TakePicture`
+> via `FileProvider`), 6-stage fault-tolerant `SortingWorker` pipeline,
+> 3-tier capability ladder (`NanoTranscriber`, `PlatformTranscriber`,
+> `NullTranscriber`; `NanoProofreader` / `DeterministicTranscriptCleaner`;
+> `NanoImageTranscriber` / bundled `MlKitOcrImageTranscriber` /
+> `NullImageTranscriber`; `NanoSummarizer`, `NanoActionExtractor`,
+> `NanoBucketer` with `@Generable` structured output + shared
+> `GenAiPromptSession` prefix caching + `ErrorCode 30` background demotion;
 > `HeuristicBucketer`, `ExtractiveSummarizer`, `HeuristicActionExtractor`,
-> `PlatformDateParser`), Room + FTS4 full-text search UI, `NotesListScreen`
-> (bucket, tag, and Needs Review filters), `NoteDetailScreen` (original
-> audio playback, inline editing, text/audio sharing via `FileProvider`,
-> bucket confirmation/reassignment), `TasksScreen`, `SettingsScreen` (live
+> `PlatformDateParser`), Room v4 + FTS4 + `note_embeddings` hybrid search
+> (`NoOpEmbedder` in Open Core), `NotesListScreen` (bucket, tag, and Needs
+> Review filters), `NoteDetailScreen` (audio playback, image preview, inline
+> editing, text/audio/image sharing via `FileProvider`, bucket
+> confirmation/reassignment), `TasksScreen`, `SettingsScreen` (live
 > `CapabilityProbe`, storage usage breakdown, opt-in 90-day audio
-> auto-delete, Developer Options), and automated unit + API 31/36/37
-> instrumented test suites.
+> auto-delete, Developer Options), `:extension-api` + `ExtensionRegistry`,
+> and automated unit (`201/201`) + API 31/36/37 instrumented test suites
+> (`69/69` verified on physical Pixel 10 Pro XL).
 >
-> **Planned (post-MVP / tracked)**: Tier 3 foundation-model `NanoSummarizer`,
-> `NanoActionExtractor`, and `NanoEmbedder` once ML Kit GenAI artifacts
-> stabilize; background retry worker when downloadable models finish
-> installing; audio file import; task reminders; Wear OS tile/complication;
-> and Android 16+ `AppFunctions`.
+> **Planned (post-MVP / tracked)**: Background retry worker when
+> downloadable models finish installing; audio file import; task reminders;
+> Wear OS tile/complication; Android 16+ `AppFunctions`; and optional
+> neural embedders / large open-weight models in downstream Pro builds.
+
+## Developer Reference Guide
+
+Start with [`docs/ON_DEVICE_AI_GUIDE.md`](docs/ON_DEVICE_AI_GUIDE.md) for a
+complete walkthrough of how this app implements modern on-device Android AI
+(with architecture diagrams, Pixel 10 Pro XL benchmarks, and hardware gotchas):
+
+- **Capability Ladder & Runtime Probe:** [`CapabilityProbe.kt`](app/src/main/java/com/icanbenchurcat/voicenotes/ai/CapabilityProbe.kt) & [`Capabilities.kt`](extension-api/src/main/java/com/icanbenchurcat/voicenotes/ai/Capabilities.kt)
+- **ML Kit GenAI Prompt API (`@Generable`, KV Prefix Caching, `ErrorCode 30`):** [`GenerativeAi.kt`](app/src/main/java/com/icanbenchurcat/voicenotes/ai/GenerativeAi.kt) (`ADR 0005`, `ADR 0006`)
+- **Saved-File Speech Recognition (`AudioSource.fromFile` + PCM Pipe):** [`Transcribers.kt`](app/src/main/java/com/icanbenchurcat/voicenotes/ai/Transcribers.kt)
+- **Zero-Permission Handwriting / Photo OCR:** [`ImageTranscribers.kt`](app/src/main/java/com/icanbenchurcat/voicenotes/ai/ImageTranscribers.kt) (`ADR 0008`)
+- **6-Stage Fault-Tolerant Pipeline:** [`SortingWorker.kt`](app/src/main/java/com/icanbenchurcat/voicenotes/service/SortingWorker.kt)
+- **Hybrid FTS4 + Cosine Search Seam:** [`SearchRepository.kt`](app/src/main/java/com/icanbenchurcat/voicenotes/data/SearchRepository.kt) (`ADR 0007`)
+- **One-Way Extension Seam:** [`ExtensionRegistry.kt`](extension-api/src/main/java/com/icanbenchurcat/voicenotes/ai/ExtensionRegistry.kt) (`ADR 0002`, `ADR 0009`, `ADR 0011`)
 
 ## The one idea: a capability ladder, not a feature gate
 
@@ -48,7 +69,7 @@ capability to probe, not a boolean to assume. Shipped capability tiers:
 
 | Tier | Hardware | Transcription | Filing | Search |
 | --- | --- | --- | --- | --- |
-| 3 - Full | Gemini Nano flagships | ML Kit Speech Recognition (Advanced) | Generative title/summary, structured action extraction | Semantic (embeddings, planned) + full-text |
+| 3 - Full | Gemini Nano flagships | ML Kit Speech Recognition (Advanced) / VLM Image (`ImagePart`) | Generative proofread, `@Generable` title/summary, structured action extraction, bucketing | Hybrid (FTS4 + `Embedder` when supplied downstream) |
 | 2 - Core | Most devices, API 31+ | ML Kit Speech Recognition (Basic) / platform recogniser | Heuristic bucketing, extractive summary | Full-text (FTS) |
 | 1 - Minimal | Any API 31+ device; also the runtime fallback on any tier when AICore is busy, downloading, or over quota | None (record and play back) | Manual | Full-text on manual titles |
 
@@ -60,7 +81,7 @@ always a correction the user can make, never work the user must do.
 
 ## Local-only by design
 
-- No account, no server, no analytics SDKs. Notes, audio and embeddings
+- No account, no server, no analytics SDKs. Notes, audio, transcripts, and embeddings never leave the device.
 - The permission list is the privacy policy. The manifest declares:
   - `RECORD_AUDIO`: Required for voice note capture.
   - `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MICROPHONE`: Powers `RecordingService` for robust background recording.
@@ -98,8 +119,8 @@ follows the consumer MVP reaching the closed track.
 
 ## Building
 
-- Android Studio (latest stable), JDK 17, compileSdk 37, minSdk 31.
-- Build with the Gradle 9.1 wrapper:
+- Android Studio (latest stable), JDK 17, compileSdk 37, targetSdk 36, minSdk 31 (AGP 9.5.2, Kotlin 2.4.21).
+- Build with the Gradle 9.9.2 wrapper:
   - Assemble debug APK: `./gradlew :app:assembleDebug` (`gradlew.bat :app:assembleDebug` on Windows)
   - Run unit tests: `./gradlew :app:testDebugUnitTest`
   - Run instrumented tests (referencing `docs/API_37_TESTING_PROTOCOL.md` for local API 37 / 16 KB page-size emulator verification): `./gradlew :app:connectedDebugAndroidTest`
@@ -108,16 +129,17 @@ follows the consumer MVP reaching the closed track.
 ## Project layout
 
 ```
-app/            the Android app (Compose UI, Room, WorkManager)
-  ai/           capability interfaces + tier implementations
-  audio/        audio recording and playback management
-  capture/      capture session and recording service coordination
-  data/         Room schema, DAOs, repository
-  debug/        debug toolbar and seed data generators
-  service/      sorting pipeline worker, quick-settings tile
-  ui/           Compose screens (Navigation 3)
-  widget/       Glance widget (home and lock screen)
-docs/           architecture notes, testing guides, and decision records (ADRs)
+app/              the Android app (Compose UI, Room, WorkManager)
+  ai/             tier implementations (Nano*, Platform*, Bundled OCR, Heuristics, CapabilityProbe)
+  audio/          audio recording and playback management
+  capture/        capture session, image capture, and recording service coordination
+  data/           Room schema (v4), DAOs, hybrid search repository
+  debug/          debug toolbar and seed data generators
+  service/        6-stage sorting pipeline worker, quick-settings tile
+  ui/             Compose screens (Navigation 3)
+  widget/         Glance widget (home and lock screen)
+extension-api/    pure Apache-2.0 capability contracts and ExtensionRegistry seam
+docs/             architecture notes, ON_DEVICE_AI_GUIDE.md, testing guides, and ADRs
 ```
 
 ## Names
