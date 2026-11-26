@@ -2,7 +2,7 @@
 
 Living tracker for the Google Play Store launch gates, conforming to Spec Section 11 and Issue #29.
 
-Last updated: 2026-11-12  
+Last updated: 2026-11-26  
 Target Release: v1.0.0 (MVP)  
 Package: `com.icanbenchurcat.voicenotes`  
 
@@ -24,10 +24,10 @@ Google Play requires all apps targeting Android 15+ devices to support 16 KB mem
 
 | Native Component / Library | Status | Verification Method |
 | :--- | :--- | :--- |
-| **App Binaries & Bytecode** | **PASS** | Kotlin / Java pure bytecode (`no NDK / C++ custom native code`). Native page alignment is inherited from standard Android runtime. |
-| **SQLite / Room Bundled Libs** | **PASS** | Room 2.8.5 uses platform SQLite (`android.database.sqlite`) on API 31–37; no third-party native `.so` packaged in APK. |
+| **App Binaries & Bytecode** | **PASS** | Kotlin / Java bytecode; verified `:app:assembleRelease` (R8, `49.3 MB` APK) and `:app:bundleRelease` (`26.7 MB` AAB) on `abf7112`. |
+| **Native `.so` Libraries** | **PASS** | Bundled 64-bit native libraries in `app-release.aab`: `libmlkit_google_ocr_pipeline.so` (`com.google.mlkit:text-recognition:16.0.1`), `libandroidx.graphics.path.so`, and `libdatastore_shared_counter.so`. |
 | **Emulator Test Run (`ps16k`)** | **PASS** | Verified on `Pixel_10_Pro_XL` AVD (`google_apis_playstore_ps16k/x86_64`, API 37.0, 16 KB page size). Cold launch, database queries, and Glance widget rendered without page fault crashes. |
-| **Binary Verification (`objdump`)** | **PASS** | APK contains zero unaligned 4 KB ELF segments in `lib/`. |
+| **Binary Verification (ELF `PT_LOAD`)** | **PASS** | Audited all 64-bit `.so` files (`base/lib/arm64-v8a/*.so` and `base/lib/x86_64/*.so`) inside `app-release.aab` on `abf7112`: every `PT_LOAD` segment reports `p_align = 0x4000` (16 KB). |
 
 ---
 
@@ -37,7 +37,7 @@ Under the local-only guarantee (Constitution Article I):
 
 | Play Console Field | Declaration | Evidence |
 | :--- | :--- | :--- |
-| **Data Collection** | **No data collected** | Verified by zero network permissions (`android.permission.INTERNET` absent from manifest). Zero third-party analytics/crash reporting SDKs. |
+| **Data Collection** | **BLOCKED (see `#172`)** | Source `app/src/main/AndroidManifest.xml` omits `INTERNET`, **but** the merged release manifest (`app-release.aab`) currently inherits `android.permission.INTERNET` transitively from `com.google.mlkit:genai-speech-recognition:1.0.0-alpha2` and `com.google.android.datatransport:transport-backend-cct:2.3.3`. Must strip via `tools:node="remove"` (Issue `#172`) before Play Store submission. Zero analytics/crash reporting SDKs. |
 | **Data Sharing** | **No data shared** | Notes, transcripts, audio recordings, and tags never transmit off the host hardware. |
 | **Data Deletion Mechanism** | **In-app delete + Settings purge** | Full atomic cascade delete (`NoteDeletionCoordinator`) purges DB rows and physical audio. Optional 90-day auto-purge for audio files. |
 | **Backup Exclusions** | **Excluded from cloud backups** | Configured in `res/xml/data_extraction_rules.xml` and `res/xml/backup_rules.xml` with passing unit tests (`BackupRulesVerificationTest`). |
