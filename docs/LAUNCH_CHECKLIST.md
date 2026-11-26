@@ -37,7 +37,7 @@ Under the local-only guarantee (Constitution Article I):
 
 | Play Console Field | Declaration | Evidence |
 | :--- | :--- | :--- |
-| **Data Collection** | **BLOCKED (see `#172`)** | Source `app/src/main/AndroidManifest.xml` omits `INTERNET`, **but** the merged release manifest (`app-release.aab`) currently inherits `android.permission.INTERNET` transitively from `com.google.mlkit:genai-speech-recognition:1.0.0-alpha2` and `com.google.android.datatransport:transport-backend-cct:2.3.3`. Must strip via `tools:node="remove"` (Issue `#172`) before Play Store submission. Zero analytics/crash reporting SDKs. |
+| **Data Collection** | **No data collected — PASS** | Verified zero `android.permission.INTERNET` in merged release `.aab` via `tools:node="remove"` (`#172`), strengthened `.github/workflows/boundary.yml` merged-manifest guard, and `NoInternetPermissionInstrumentedTest` on Pixel 10 Pro XL. Zero analytics/crash reporting SDKs. |
 | **Data Sharing** | **No data shared** | Notes, transcripts, audio recordings, and tags never transmit off the host hardware. |
 | **Data Deletion Mechanism** | **In-app delete + Settings purge** | Full atomic cascade delete (`NoteDeletionCoordinator`) purges DB rows and physical audio. Optional 90-day auto-purge for audio files. |
 | **Backup Exclusions** | **Excluded from cloud backups** | Configured in `res/xml/data_extraction_rules.xml` and `res/xml/backup_rules.xml` with passing unit tests (`BackupRulesVerificationTest`). |
