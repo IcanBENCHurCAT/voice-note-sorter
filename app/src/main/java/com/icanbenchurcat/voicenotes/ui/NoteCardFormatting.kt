@@ -229,7 +229,25 @@ object NoteCardFormatting {
             .firstOrNull { it.kind.equals(bucketKind, ignoreCase = true) }?.name
         if (!defaultMatched.isNullOrBlank()) return defaultMatched
 
-        val trimmed = bucketKind.trim()
+        return titleCaseSlug(bucketKind)
+    }
+
+    /**
+     * Maps an internal processing tier identifier ([tierUsed]) to a plain-language label
+     * matching the user-facing mode names.
+     */
+    fun formatTierLabel(tierUsed: String): String {
+        val normalized = tierUsed.trim().uppercase(Locale.ROOT)
+        return when (normalized) {
+            "FULL" -> "Full on-device AI"
+            "CORE" -> "Core sorting"
+            "MINIMAL", "" -> "Basic mode"
+            else -> titleCaseSlug(tierUsed)
+        }
+    }
+
+    private fun titleCaseSlug(raw: String): String {
+        val trimmed = raw.trim()
         if (trimmed.isEmpty()) return ""
         return trimmed.replace('_', ' ')
             .lowercase(Locale.ROOT)

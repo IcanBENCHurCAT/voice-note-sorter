@@ -598,7 +598,13 @@ fun NotesListScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        val metaDesc = stringResource(R.string.cd_note_meta, note.bucketKind, note.tierUsed)
+                        val bucketDisplayName = remember(note.bucketKind, effectiveBuckets) {
+                            NoteCardFormatting.formatBucketDisplayName(note.bucketKind, effectiveBuckets)
+                        }
+                        val tierDisplayLabel = remember(note.tierUsed) {
+                            NoteCardFormatting.formatTierLabel(note.tierUsed)
+                        }
+                        val metaDesc = stringResource(R.string.cd_note_meta, bucketDisplayName, tierDisplayLabel)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -234,7 +234,7 @@ fun AddBucketDialog(
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .semantics { contentDescription = "New bucket identifier field" }
+                        .semantics { contentDescription = "New bucket short code field" }
                 )
             }
         },

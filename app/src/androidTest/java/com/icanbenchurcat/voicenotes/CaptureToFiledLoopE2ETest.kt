@@ -143,13 +143,13 @@ class CaptureToFiledLoopE2ETest {
         // 3. Wait for SortingWorker to finish all 4 stages and file the note into TASK
         val expectedTitle = "Remind me to call the electrician tomorrow"
         composeRule.waitUntil(timeoutMillis = 15_000) {
-            composeRule.onAllNodesWithContentDescription("Filed as TASK, CORE")
+            composeRule.onAllNodesWithContentDescription("Filed as Tasks, Core sorting")
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        // 4. Assert note appears in the notes list with title and TASK · CORE metadata
+        // 4. Assert note appears in the notes list with title and Tasks / Core sorting metadata
         composeRule.onNodeWithText(expectedTitle).assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Filed as TASK, CORE").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Filed as Tasks, Core sorting").assertIsDisplayed()
 
         // Wait until status reaches SORTED in Room
         composeRule.waitUntil(timeoutMillis = 5_000) {
