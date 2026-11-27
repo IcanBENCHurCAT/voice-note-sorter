@@ -33,3 +33,12 @@
 -keep @com.google.mlkit.genai.schema.annotations.Generable class * { *; }
 -keep class * implements com.google.mlkit.genai.schema.guided.GenerableProvider { *; }
 -dontwarn com.google.mlkit.genai.**
+
+# ML Kit ComponentDiscovery / Firebase Components
+# Legacy firebase-components:16.1.0 ships a bodyless `-keep class * implements ComponentRegistrar`
+# rule; under R8 full mode that strips `<init>()` from CommonComponentRegistrar, TextRegistrar,
+# and VisionCommonRegistrar, breaking MlKitInitProvider (GenAI Prompt, Speech, and Vision OCR).
+-keep class * implements com.google.firebase.components.ComponentRegistrar {
+    public <init>();
+    public java.util.List getComponents();
+}
