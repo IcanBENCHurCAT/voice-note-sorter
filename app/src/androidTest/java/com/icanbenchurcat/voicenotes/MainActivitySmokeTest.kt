@@ -161,7 +161,7 @@ class MainActivitySmokeTest {
     @Test
     fun rootTabs_shareTopAppBarWithAccessibleSettingsButton_andOpenSettings() {
         // On Notes tab: shared TopAppBar, >= 48dp Settings IconButton, and plain-language empty state
-        composeRule.onNodeWithText("Voice Note Sorter").assertIsDisplayed()
+        composeRule.onNodeWithText("Open & Shut").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Settings")
             .assertIsDisplayed()
             .assertWidthIsAtLeast(48.dp)
@@ -178,7 +178,7 @@ class MainActivitySmokeTest {
 
         // Switch to Tasks tab: shared TopAppBar Settings IconButton and Record ExtendedFAB remain visible
         composeRule.onNodeWithText("Tasks").performClick()
-        composeRule.onNodeWithText("Voice Note Sorter").assertIsDisplayed()
+        composeRule.onNodeWithText("Open & Shut").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Settings")
             .assertIsDisplayed()
             .assertWidthIsAtLeast(48.dp)

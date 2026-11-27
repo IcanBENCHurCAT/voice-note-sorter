@@ -79,7 +79,7 @@ class DebugSeedInstrumentedTest {
         assertTrue(composeRule.onAllNodesWithText("🛠").fetchSemanticsNodes().isEmpty())
         val devNode = composeRule.onNodeWithContentDescription("Developer options")
         devNode.assertIsDisplayed().assertHeightIsAtLeast(48.dp)
-        val titleBounds = composeRule.onNodeWithText("Voice Note Sorter").fetchSemanticsNode().boundsInRoot
+        val titleBounds = composeRule.onNodeWithText("Open & Shut").fetchSemanticsNode().boundsInRoot
         val devBounds = devNode.fetchSemanticsNode().boundsInRoot
         val titleCenterY = (titleBounds.top + titleBounds.bottom) / 2f
         val devCenterY = (devBounds.top + devBounds.bottom) / 2f
