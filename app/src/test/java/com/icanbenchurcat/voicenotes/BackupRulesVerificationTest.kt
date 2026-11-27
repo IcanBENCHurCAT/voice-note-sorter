@@ -119,13 +119,25 @@ class BackupRulesVerificationTest {
         val manifestFile = File(projectRoot, "app/src/main/AndroidManifest.xml")
         val root = parseXml(manifestFile)
         val perms = root.getElementsByTagName("uses-permission")
-        val names = (0 until perms.length)
-            .map { (perms.item(it) as Element).getAttribute("android:name") }
+        val elements = (0 until perms.length).map { perms.item(it) as Element }
+        // Entries with tools:node="remove" are manifest-merger removal
+        // directives, not declarations (#172 strips transitive INTERNET).
+        val names = elements
+            .filter { it.getAttribute("tools:node") != "remove" }
+            .map { it.getAttribute("android:name") }
+            .toSet()
+        val removedNames = elements
+            .filter { it.getAttribute("tools:node") == "remove" }
+            .map { it.getAttribute("android:name") }
             .toSet()
         assertTrue("CAMERA permission must not be declared", !names.contains("android.permission.CAMERA"))
         assertTrue("READ_MEDIA_IMAGES permission must not be declared", !names.contains("android.permission.READ_MEDIA_IMAGES"))
         assertTrue("READ_EXTERNAL_STORAGE permission must not be declared", !names.contains("android.permission.READ_EXTERNAL_STORAGE"))
         assertTrue("INTERNET permission must not be declared", !names.contains("android.permission.INTERNET"))
+        assertTrue(
+            "INTERNET must be stripped via tools:node=\"remove\" (#172)",
+            removedNames.contains("android.permission.INTERNET")
+        )
     }
 
     @Test

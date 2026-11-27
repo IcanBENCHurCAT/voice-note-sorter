@@ -31,12 +31,23 @@ jobs:
 
       - name: Check source manifest does not declare INTERNET
         run: |
-          OFFENDING_SOURCE=$(grep -Hni "android.permission.INTERNET" app/src/main/AndroidManifest.xml | grep -v 'tools:node="remove"' || true)
-          if [ -n "$OFFENDING_SOURCE" ]; then
-            echo "ERROR: android.permission.INTERNET declared in app/src/main/AndroidManifest.xml without tools:node=\"remove\"!"
-            echo "$OFFENDING_SOURCE"
-            exit 1
-          fi
+          python3 - <<'PYEOF'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("app/src/main/AndroidManifest.xml").getroot()
+          android_name = "{http://schemas.android.com/apk/res/android}name"
+          tools_node = "{http://schemas.android.com/tools}node"
+          offending = [
+              el.get(android_name)
+              for el in root.iter("uses-permission")
+              if el.get(android_name) == "android.permission.INTERNET"
+              and el.get(tools_node) != "remove"
+          ]
+          if offending:
+              print("ERROR: android.permission.INTERNET declared in app/src/main/AndroidManifest.xml without tools:node=\"remove\"!")
+              sys.exit(1)
+          PYEOF
 
       - name: Set up JDK 17
         uses: actions/setup-java@v6
