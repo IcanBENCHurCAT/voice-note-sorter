@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Voice Note Sorter</string>
+    <string name="app_name">Open &amp; Shut</string>
     <string name="tile_label">Record a note</string>
     <string name="widget_description">One-tap voice note capture</string>
     <string name="channel_sorting">Sorting</string>

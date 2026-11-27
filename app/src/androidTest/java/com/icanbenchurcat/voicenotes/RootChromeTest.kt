@@ -39,7 +39,7 @@ class RootChromeTest {
             }
         }
 
-        composeRule.onNodeWithText("Voice Note Sorter").assertIsDisplayed()
+        composeRule.onNodeWithText("Open & Shut").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Settings")
             .assertIsDisplayed()
             .assertWidthIsAtLeast(48.dp)

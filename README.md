@@ -1,4 +1,4 @@
-# Voice Note Sorter (working title)
+# Open & Shut
 
 Talk first. File never.
 
@@ -144,7 +144,8 @@ docs/             architecture notes, ON_DEVICE_AI_GUIDE.md, testing guides, and
 
 ## Names
 
-"Voice Note Sorter" is a working title. Final name candidates live in the
-concept spec; the repo and package will be renamed when one clears
-trademark and Play availability checks. Renaming a repo is cheap. Shipping
-the wrong boundary is not.
+The app is **Open & Shut** (decided 2026-11-27, see ADR 0012). "Voice Note
+Sorter" was the working title. The repository and the package
+(`com.icanbenchurcat.voicenotes`) keep their existing names: the rename is
+a display-name change only, so there is no package migration churn.
+Renaming a repo is cheap. Shipping the wrong boundary is not.
