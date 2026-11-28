@@ -4,13 +4,30 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group
-        android:scaleX="2.5"
-        android:scaleY="2.5"
-        android:translateX="24"
-        android:translateY="24">
-        <path
-            android:fillColor="#D0BCFF"
-            android:pathData="M12,15a3,3 0 0,0 3,-3L15,6a3,3 0 0,0 -6,0v6a3,3 0 0,0 3,3zM17.3,11.5a1,1 0 0,0 -2,0.3 3.5,3.5 0 0,1 -6.6,0 1,1 0 0,0 -2,-0.3A5.5,5.5 0 0,0 11,16.9L11,19H7a1,1 0 0,0 0,2h10a1,1 0 0,0 0,-2h-4v-2.1a5.5,5.5 0 0,0 4.3,-5.4z" />
-    </group>
+    <!-- Sage microphone capsule (upper + cradle + stem/base) -->
+    <path
+        android:fillColor="#B9DEC8"
+        android:pathData="M54,26c5.52,0 10,4.48 10,10v15c0,5.52 -4.48,10 -10,10s-10,-4.48 -10,-10V36c0,-5.52 4.48,-10 10,-10z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#B9DEC8"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round"
+        android:pathData="M37,48a17,17 0 0,0 34,0" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#B9DEC8"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,65v13M43,78h22" />
+
+    <!-- Clean dark cutout gap across lower third for crisp shut-line separation -->
+    <path
+        android:fillColor="#1B2621"
+        android:pathData="M31,51.5h46v9h-46z" />
+
+    <!-- Bold horizontal "shut" seal line across the lower third -->
+    <path
+        android:fillColor="#E6F5EC"
+        android:pathData="M35.25,53.75h37.5a2.25,2.25 0 0,1 2.25,2.25v0a2.25,2.25 0 0,1 -2.25,2.25h-37.5a2.25,2.25 0 0,1 -2.25,-2.25v0a2.25,2.25 0 0,1 2.25,-2.25z" />
 </vector>
