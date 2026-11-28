@@ -1,8 +1,8 @@
-# Voice Note Sorter Constitution
+# Open & Shut Constitution
 
 ## Preamble
 
-Voice Note Sorter is one application maintained as two repositories: a
+Open & Shut is one application maintained as two repositories: a
 public open core licensed under Apache-2.0, and a private closed
 repository for Pro and client work that may be created when the first
 paid feature is built. This constitution governs both repositories, all
@@ -184,4 +184,4 @@ Article VIII.
    published, remediation includes the disclosure required by the
    consequences recorded in ADR 0001.
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-30 | **Last Amended**: 2026-11-18 (Added Article II "Open Core / Closed Pro Boundary" addendum; ADR 0009)
+**Version**: 1.1.1 | **Ratified**: 2026-10-30 | **Last Amended**: 2026-11-28 (Renamed product references from Voice Note Sorter to Open & Shut per ADR 0012)
